@@ -1,0 +1,16 @@
+# build output
+/dist/
+/VPNCheck.exe
+*.exe
+*.zip
+*.test
+*.out
+
+# editor / os
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# local snapshots made by other tools
+/_backups/

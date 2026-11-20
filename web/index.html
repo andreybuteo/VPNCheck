@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPN Check</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta name="theme-color" content="#21a89b">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+  <symbol id="i-ok" viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 2l6.5 11.5H1.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v3.5M8 11.6v.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-neutral" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 8h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 16 16"><path d="M8 2a6 6 0 1 1-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-queue" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 2"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10.5" cy="4" r="1.7" fill="var(--panel)" stroke="currentColor" stroke-width="1.6"/><circle cx="5.5" cy="8" r="1.7" fill="var(--panel)" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="12" r="1.7" fill="var(--panel)" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13 10.5A6 6 0 0 1 5.5 3a6 6 0 1 0 7.5 7.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-power" viewBox="0 0 16 16"><path d="M8 2v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.5 4.5a5.5 5.5 0 1 0 7 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 16 16"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M5 6.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7v4M8 4.6v.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+
+<div id="banners" class="banners" data-i18n-skip></div>
+
+<header class="topbar">
+  <div class="brand"><img class="logo" src="favicon.svg" alt="" width="22" height="22"><span class="brand-name">VPN Check</span> <span class="ver" id="appVersion" title="Версия программы"></span></div>
+  <label class="field profile">
+    <span class="label">Профиль</span>
+    <input id="profileName" type="text" maxlength="80" placeholder="VPN — Германия" autocomplete="off">
+  </label>
+  <button id="routeBadge" class="route-badge" type="button" title="Открыть настройки маршрута" data-i18n-skip>
+    <span id="routeText"></span>
+  </button>
+  <select id="langSelect" class="lang-select" aria-label="Язык интерфейса" title="Язык интерфейса" data-i18n-skip></select>
+  <div class="grow"></div>
+  <span id="startHint" class="hint start-hint" hidden data-i18n-skip></span>
+  <button id="btnSpeed" class="btn" type="button" title="Замер скорости через выбранный маршрут">Скорость</button>
+  <button id="btnStart" class="btn btn-primary" type="button">Начать проверку</button>
+  <button id="btnStop" class="btn btn-danger" type="button" hidden>Остановить</button>
+  <button id="btnTheme" class="btn btn-icon" type="button" aria-label="Переключить тему" title="Тема"><svg class="icon"><use href="#i-sun"/></svg></button>
+  <button id="btnSettings" class="btn btn-icon" type="button" aria-label="Настройки" aria-controls="drawer" aria-expanded="false" title="Настройки"><svg class="icon"><use href="#i-settings"/></svg></button>
+  <button id="btnQuit" class="btn btn-icon btn-quit" type="button" aria-label="Завершить приложение" title="Завершить приложение (остановить backend)"><svg class="icon"><use href="#i-power"/></svg></button>
+</header>
+
+<main class="main">
+  <section id="envBox" class="envbox" aria-label="Окружение" data-i18n-skip></section>
+
+  <details class="fold" id="foldSelect" data-fold="select">
+    <summary><span class="fold-title">Что проверять</span> <span id="selectSummary" class="fold-sub" data-i18n-skip></span></summary>
+    <section class="controls" aria-label="Параметры проверки">
+      <div class="segmented" role="radiogroup" aria-label="Режим проверки" id="modeSwitch">
+        <button type="button" role="radio" data-mode="fast" aria-checked="true">Быстрая</button>
+        <button type="button" role="radio" data-mode="stability" aria-checked="false">Стабильность</button>
+      </div>
+      <div id="selectFast" class="chips" role="group" aria-label="Сервисы для проверки" data-i18n-skip></div>
+      <div id="selectStability" class="stability-select" hidden>
+        <div class="field">
+          <span class="label" id="stabilityCount" data-i18n-skip></span>
+          <div id="stabilityList" class="stability-list" role="group" aria-labelledby="stabilityCount" data-i18n-skip></div>
+        </div>
+        <span id="stabilityHint" class="hint">Отметьте от 1 до 5 узлов. 3 пробы каждого с интервалом не менее 10 с. Разброс — это размах задержки TLS/HTTP, а не сетевой jitter.</span>
+      </div>
+    </section>
+  </details>
+
+  <section class="summary" id="summary" aria-label="Сводка" data-i18n-skip></section>
+  <section class="speedbox" id="speedBox" aria-label="Скорость" aria-live="polite" data-i18n-skip></section>
+  <section class="ipstrip" id="ipStrip" aria-label="IP выхода, последние подключения" data-i18n-skip></section>
+  <div id="runNote" class="runnote" data-i18n-skip></div>
+
+  <div class="section-head cards-head">
+    <h2>Сервисы</h2>
+    <div class="grow"></div>
+    <div class="segmented seg-small" role="radiogroup" aria-label="Фильтр" id="filterSwitch">
+      <button type="button" role="radio" data-filter="all" aria-checked="true">Все</button>
+      <button type="button" role="radio" data-filter="problems" aria-checked="false">Проблемы</button>
+      <button type="button" role="radio" data-filter="ok" aria-checked="false">Доступны</button>
+      <button type="button" role="radio" data-filter="unchecked" aria-checked="false">Не проверены</button>
+    </div>
+    <input id="search" type="search" placeholder="Поиск" aria-label="Поиск по хосту или названию">
+  </div>
+  <section id="cards" class="cards" aria-label="Сервисы" data-i18n-skip></section>
+  <section id="details" class="details" hidden aria-live="polite" data-i18n-skip></section>
+
+  <details class="fold" id="foldVerdicts" data-fold="verdicts" hidden>
+    <summary><span class="fold-title">Диагноз</span> <span id="verdictsSummary" class="fold-sub" data-i18n-skip></span></summary>
+    <section id="verdicts" class="verdicts" aria-label="Диагноз" data-i18n-skip></section>
+  </details>
+
+  <details class="fold" id="foldRun" data-fold="run" hidden>
+    <summary><span class="fold-title">Подробности запуска и отчёт</span> <span id="runSummary" class="fold-sub" data-i18n-skip></span></summary>
+    <div id="statusLine" class="statusline" data-i18n-skip></div>
+    <div class="row wrap">
+      <button id="btnReport" class="btn btn-small" type="button" title="Полный диагностический отчёт JSON: паспорт окружения, все пробы, вердикты и инструкция для анализа (в том числе LLM)" disabled><svg class="icon"><use href="#i-download"/></svg> Сохранить отчёт JSON</button>
+    </div>
+  </details>
+
+  <details class="fold history" id="foldHistory" data-fold="history">
+    <summary><span class="fold-title">История</span> <span id="historyCount" class="fold-sub" data-i18n-skip></span></summary>
+    <div class="section-head">
+      <div class="grow"></div>
+      <button id="btnCompare" class="btn btn-small" type="button" disabled>Сравнить выбранные</button>
+    </div>
+    <div id="historyBody" data-i18n-skip></div>
+    <div id="compare" class="compare" hidden data-i18n-skip></div>
+    <h3 class="subhead">Замеры скорости</h3>
+    <div id="speedHistory" data-i18n-skip></div>
+  </details>
+</main>
+
+<div id="drawerBackdrop" class="backdrop" hidden></div>
+<aside id="drawer" class="drawer" hidden aria-label="Настройки" role="dialog" aria-modal="true">
+  <div class="drawer-head">
+    <h2>Настройки</h2>
+    <button id="btnDrawerClose" class="btn btn-icon" type="button" aria-label="Закрыть"><svg class="icon"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="drawer-body">
+    <details open>
+      <summary>Маршрут</summary>
+      <div class="stack">
+        <label class="radio"><input type="radio" name="routeMode" value="system"> <span>Системный маршрут / TUN — как настроена Windows сейчас, без прокси уровня приложения. Это не режим «обойти VPN».</span></label>
+        <label class="radio"><input type="radio" name="routeMode" value="proxy"> <span>Прокси — явно заданный HTTP CONNECT или SOCKS5 (без авторизации).</span></label>
+        <div id="proxyFields" class="row">
+          <label class="field"><span class="label">Тип</span>
+            <select id="proxyKind"><option value="http">HTTP CONNECT</option><option value="socks5">SOCKS5</option></select></label>
+          <label class="field grow"><span class="label">Адрес host:port</span>
+            <input id="proxyAddr" type="text" dir="ltr" placeholder="127.0.0.1:10809" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div id="sysproxyBox" class="note" data-i18n-skip></div>
+        <label class="field"><span class="label">Семейство IP (только системный маршрут)</span>
+          <select id="ipFamily"><option value="auto">Auto</option><option value="ipv4">Только IPv4</option><option value="ipv6">Только IPv6</option></select></label>
+      </div>
+    </details>
+    <details open>
+      <summary>Проверка</summary>
+      <div class="stack">
+        <label class="field"><span class="label">Порог «медленно», мс (0 — выключить)</span>
+          <input id="slowThreshold" type="number" min="0" max="60000" step="100"></label>
+        <span class="hint">Локальная эвристика по времени до готовности TLS одной и той же метрики, не SLA сервиса.</span>
+        <label class="field"><span class="label">Пауза перед повторной проверкой, с</span>
+          <input id="runCooldown" type="number" min="10" max="1800" step="5"></label>
+        <span id="runCooldownHint" class="hint">От 10 до 1800 с, по умолчанию 60. Считается от начала предыдущего запуска и сразу применяется к текущему ожиданию. Часового лимита проб нет.</span>
+        <label class="check"><input id="ipLogOn" type="checkbox"> <span>Журнал IP выхода — запоминать адрес при каждой проверке и замере</span></label>
+        <span class="hint">Один короткий запрос к Cloudflare (cdn-cgi/trace) через выбранный маршрут в начале и в конце проверки и перед замером. Адреса видны в полосе «IP выхода»; в экспорте они по-прежнему скрыты, пока вы не включите подробные данные.</span>
+        <label class="check"><input id="showExternalIp" type="checkbox"> <span>Показывать внешний IP</span></label>
+        <span id="externalIpHint" class="hint" data-i18n-skip></span>
+      </div>
+    </details>
+    <details open>
+      <summary>Замер скорости</summary>
+      <div class="stack">
+        <label class="field"><span class="label">Сервер замера</span>
+          <select id="speedServer" data-i18n-skip></select></label>
+        <span id="speedServerNote" class="hint" data-i18n-skip></span>
+        <span id="speedLimitsNote" class="hint" data-i18n-skip></span>
+      </div>
+    </details>
+    <details>
+      <summary>Реестр контрольных точек</summary>
+      <div class="stack">
+        <div id="registryList" class="registry" data-i18n-skip></div>
+        <div class="row wrap">
+          <button id="btnRegExport" class="btn btn-small" type="button">Экспорт JSON</button>
+          <label class="btn btn-small">Импорт JSON<input id="regImport" type="file" accept="application/json,.json" hidden></label>
+          <button id="btnRegReset" class="btn btn-small" type="button">Сбросить к встроенному</button>
+        </div>
+        <fieldset class="custom-form">
+          <legend>Своя точка (публичный HTTPS-хост, порт 443)</legend>
+          <div class="row wrap">
+            <label class="field grow"><span class="label">Хост</span><input id="cHost" type="text" dir="ltr" placeholder="example.org" spellcheck="false"></label>
+            <label class="field"><span class="label">Подпись</span><input id="cLabel" type="text" placeholder="Мой сервис"></label>
+            <label class="field"><span class="label">Тип</span><select id="cKind"><option value="tls">tls</option><option value="https">https</option></select></label>
+          </div>
+          <div class="row wrap" id="cHttpsRow">
+            <label class="field grow"><span class="label">URL (https://хост/путь)</span><input id="cUrl" type="text" dir="ltr" placeholder="https://example.org/health" spellcheck="false"></label>
+            <label class="field"><span class="label">Ожидаемые статусы</span><input id="cStatuses" type="text" dir="ltr" placeholder="200, 204"></label>
+          </div>
+          <div class="row">
+            <button id="btnCustomAdd" class="btn btn-small" type="button">Добавить</button>
+            <span id="customMsg" class="hint" data-i18n-skip></span>
+          </div>
+        </fieldset>
+      </div>
+    </details>
+    <details>
+      <summary>Справка и ограничения</summary>
+      <div class="stack help">
+        <p>Программа проверяет доступность контрольных узлов, а не гарантирует работу приложений. Доступность страницы YouTube не доказывает воспроизведение видео, доступность доменов Fusion — сохранение проекта, TLS к API — успешный вызов модели. Ответ 401 означает «сервер ответил, требуется авторизация», а не «API работает».</p>
+        <p>Типы проб: <b>tls</b> — DNS → TCP 443 → TLS с проверкой сертификата, без HTTP-запроса; <b>https</b> — один GET к небольшому документированному ресурсу, все этапы измеряются на этом же запросе. Редиректы не выполняются, повторов нет, тело ограничено 64 КиБ.</p>
+        <p>Щадящие лимиты: не более 4 проб одновременно, одна на хост, пауза между запусками (настраивается, по умолчанию 60 с), стоп хоста после 403/CAPTCHA до конца запуска, пауза после 429 по Retry-After или 15 минут. Это осторожная настройка приложения, а не квота сервисов; нулевой риск блокировки не обещается.</p>
+        <p>Закрытие вкладки не завершает программу: backend продолжает работать, и повторный запуск VPNCheck.exe снова откроет этот интерфейс. Чтобы остановить процесс и освободить порт, нажмите «Завершить приложение».</p>
+        <p id="dataDirNote" data-i18n-skip></p>
+        <p id="versionNote" data-i18n-skip></p>
+      </div>
+    </details>
+    <div class="drawer-foot">
+      <button id="btnQuit2" class="btn btn-danger" type="button">Завершить приложение</button>
+    </div>
+  </div>
+</aside>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden data-i18n-skip></div>
+<script src="flags.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
