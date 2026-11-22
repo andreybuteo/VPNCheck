@@ -65,7 +65,8 @@ func (m *SpeedMeter) fake(ctx context.Context, target float64, live speed.Live) 
 				live(cur, bytes, el)
 			}
 			if el >= phase {
-				return speed.Throughput{Mbps: target, Bytes: bytes, Seconds: el.Seconds()}, nil
+				// Through the proxy the demo link is "fast": the phase ends at the byte cap.
+				return speed.Throughput{Mbps: target, Bytes: bytes, Seconds: el.Seconds(), CapReached: m.proxy}, nil
 			}
 		}
 	}
@@ -80,6 +81,9 @@ func dip(el time.Duration) float64 {
 }
 
 func (m *SpeedMeter) Download(ctx context.Context, _ speed.Server, live speed.Live) (speed.Throughput, error) {
+	if m.proxy {
+		return m.fake(ctx, 182.6, live)
+	}
 	return m.fake(ctx, 87.4, live)
 }
 

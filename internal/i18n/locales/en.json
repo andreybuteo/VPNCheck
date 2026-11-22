@@ -890,5 +890,11 @@
   "этот сервер только для скачивания": "this server is download-only",
   "— DNS → TCP 443 → TLS с проверкой сертификата, без HTTP-запроса;": "— DNS → TCP 443 → TLS with certificate verification, no HTTP request;",
   "— изменился во время запуска, условия менялись": "— changed during the run; conditions varied",
-  "— один GET к небольшому документированному ресурсу, все этапы измеряются на этом же запросе. Редиректы не выполняются, повторов нет, тело ограничено 64 КиБ.": "— a single GET to a small documented resource; all stages are measured on that same request. No redirects are followed, no retries, the body is capped at 64 KiB."
+  "— один GET к небольшому документированному ресурсу, все этапы измеряются на этом же запросе. Редиректы не выполняются, повторов нет, тело ограничено 64 КиБ.": "— a single GET to a small documented resource; all stages are measured on that same request. No redirects are followed, no retries, the body is capped at 64 KiB.",
+  "Все этапы замера завершены штатно.": "All phases of the speed test finished normally.",
+  "Этап завершён штатно: прошли все %d с замера, передано %s МБ.": "Phase finished normally: the full %d s ran, %s MB moved.",
+  "шкала %d Мбит/с": "scale %d Mbit/s",
+  "✓ %s МБ за полные %d с": "✓ %s MB in the full %d s",
+  "✓ потолок %s МБ за %s с": "✓ cap %s MB in %s s",
+  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase finished normally: %s s moved %s MB, the cap of one test. The link is fast, the speed is already measured, there is no need to move more data."
 }

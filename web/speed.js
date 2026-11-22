@@ -1,7 +1,7 @@
 // Speed test: the row of speed tiles with the flying-dot animation and the
 // still trace, the in-page confirmation balloon, the speed button, the speed
 // settings and the speed history table.
-import { t } from "./i18n.js";
+import { t, numLocale } from "./i18n.js";
 import {
   $, el, ltr, S, settings, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast,
   fmtMs, fmtTime, fmtShort, fmtMbps, fmtMB, fmtPause, routeLabel,
@@ -97,12 +97,13 @@ export function renderSpeed() {
   const valMbps = (v, ph) => live(ph) ? mbps(cur.liveMbps) : (v === null || v === undefined ? "—" : mbps(v));
   const inPhase = (ph) => !!cur && cur.phase === ph;
   const nodeName = last ? t((srv && srv.name) || last.serverName) + (last.colo ? " · " + t("узел %s", last.colo) : "") : (srv ? t(srv.name) : "");
-  const first = cell(t("Скорость"), cur ? el("span", { class: "sp-run", text: t("идёт замер") }) : (last ? speedStatusName(last.status) : "—"), nodeName, last && !cur ? "st-" + last.status : "");
+  const first = cell(t("Скорость"), cur ? el("span", { class: "sp-run", text: t("идёт замер") }) : (last ? (last.status === "completed" ? "✓ " : "") + speedStatusName(last.status) : "—"), nodeName, last && !cur ? "st-" + last.status : "");
+  if (last && !cur && last.status === "completed") first.title = t("Все этапы замера завершены штатно.");
   const down = cell(t("Скачивание"), valMbps(last && last.downMbps, "download"),
-    inPhase("download") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.downBytes ? t("%s МБ за %d с", fmtMB(last.downBytes), Math.round(last.downSeconds)) : t("загрузка с сервера")),
+    inPhase("download") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.downBytes ? phaseEnd(last, "down", sp.plan) : t("загрузка с сервера")),
     inPhase("download") ? "active" : "");
   const up = cell(t("Отдача"), fileOnly ? "—" : valMbps(last && last.upMbps, "upload"),
-    fileOnly ? t("этот сервер только для скачивания") : (inPhase("upload") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.upBytes ? t("%s МБ за %d с", fmtMB(last.upBytes), Math.round(last.upSeconds)) : t("отправка на сервер"))),
+    fileOnly ? t("этот сервер только для скачивания") : (inPhase("upload") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.upBytes ? phaseEnd(last, "up", sp.plan) : t("отправка на сервер"))),
     inPhase("upload") ? "active" : "");
   const hasLat = last && last.latencyMs !== null && last.latencyMs !== undefined;
   const lat = cell(t("Задержка"),
@@ -130,14 +131,59 @@ export function renderSpeed() {
     bar.style.width = `${Math.round(((cur.phaseIndex - 1 + part) / total) * 100)}%`;
   }
   first.append(bar);
+  for (const [tile, side] of [[down, "down"], [up, "up"]]) {
+    const why = last && !inPhase(side === "down" ? "download" : "upload") && phaseEndTitle(last, side, sp.plan);
+    if (why) tile.title = why;
+  }
   if (last) {
     down.dataset.phase = "download"; up.dataset.phase = "upload";
-    addSpark(down, last.downSeries, inPhase("download"), cur && cur.liveMbps);
-    if (!fileOnly) addSpark(up, last.upSeries, inPhase("upload"), cur && cur.liveMbps);
+    addSpark(down, last.downSeries, inPhase("download"), cur && cur.liveMbps, !cur && phaseOK(last, "down"));
+    if (!fileOnly) addSpark(up, last.upSeries, inPhase("upload"), cur && cur.liveMbps, !cur && phaseOK(last, "up"));
   }
   if (S.flyer && !(cur && (cur.phase === "download" || cur.phase === "upload") && S.flyer.phase === cur.phase)) { S.flyer.stop(); S.flyer = null; }
   box.replaceChildren(first, down, up, lat, meta);
   box.classList.toggle("running", !!cur);
+}
+
+// ---- why a phase ended: a finished phase says so, so a short one does not
+// look like an interruption. A phase ends normally either at the byte cap
+// (fast link: the rate is already measured, no need to move more data) or
+// after the full phase time.
+const fmtSec = (v) => Number(v || 0).toLocaleString(numLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+function phaseOK(r, side) {
+  const v = side === "down" ? r.downMbps : r.upMbps;
+  return v !== null && v !== undefined && r.status !== "failed";
+}
+function phaseEnd(r, side, plan) {
+  const bytes = side === "down" ? r.downBytes : r.upBytes;
+  const sec = side === "down" ? r.downSeconds : r.upSeconds;
+  const cap = side === "down" ? r.downCapReached : r.upCapReached;
+  if (!phaseOK(r, side)) return t("%s МБ за %d с", fmtMB(bytes), Math.round(sec));
+  if (cap) return t("✓ потолок %s МБ за %s с", fmtMB(bytes), fmtSec(sec));
+  return t("✓ %s МБ за полные %d с", fmtMB(bytes), Math.round(sec));
+}
+function phaseEndTitle(r, side, plan) {
+  if (!r || !phaseOK(r, side)) return "";
+  const bytes = side === "down" ? r.downBytes : r.upBytes;
+  const sec = side === "down" ? r.downSeconds : r.upSeconds;
+  const cap = side === "down" ? r.downCapReached : r.upCapReached;
+  return cap
+    ? t("Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.", fmtSec(sec), fmtMB(bytes))
+    : t("Этап завершён штатно: прошли все %d с замера, передано %s МБ.", Math.round(sec), fmtMB(bytes));
+}
+
+// Scale of the speed graphs: 100 Mbit/s, then 200, 500, 1000… when exceeded.
+const SCALE_STEPS = [100, 200, 500, 1000, 2000, 5000, 10000];
+function scaleFor(v) {
+  for (const s of SCALE_STEPS) if (v <= s) return s;
+  return SCALE_STEPS[SCALE_STEPS.length - 1];
+}
+function scaleLabel(tile, scale) {
+  let lab = tile.querySelector(".sp-scale");
+  if (!lab) { lab = el("span", { class: "sp-scale" }); tile.append(lab); }
+  const text = t("шкала %d Мбит/с", scale);
+  if (lab.textContent !== text) lab.textContent = text;
+  return lab;
 }
 
 // Rate spread after warm-up, for the tooltip and the verdict word of a trace.
@@ -178,7 +224,8 @@ class Flyer {
     this.phase = phase;
     this.canvas = el("canvas", { class: "sp-fly", "aria-hidden": "true" });
     this.num = el("span", { class: "sp-num", text: "0" });
-    this.target = 0; this.shown = 0; this.max = 10; this.trail = []; this.last = 0; this.clock = 0; this.raf = 0;
+    this.target = 0; this.shown = 0; this.max = 100; this.scale = 100; this.trail = []; this.last = 0; this.clock = 0; this.raf = 0;
+    this.label = null;
   }
   feed(v) {
     this.target = Math.max(0, v || 0);
@@ -190,8 +237,10 @@ class Flyer {
   frame(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.clock += dt;
     this.shown += (this.target - this.shown) * (1 - Math.exp(-dt * 5));
-    const peak = Math.max(this.target, ...this.trail.map(p => p.v), 1);
-    this.max += (peak * 1.3 - this.max) * (1 - Math.exp(-dt * 2));
+    const peak = Math.max(this.target, this.shown, ...this.trail.map(p => p.v), 1);
+    this.scale = scaleFor(peak);
+    this.max += (this.scale - this.max) * (1 - Math.exp(-dt * 4));   // the jump to 200/500 is eased
+    if (this.label) { const text = t("шкала %d Мбит/с", this.scale); if (this.label.textContent !== text) this.label.textContent = text; }
     this.trail.push({ t: this.clock, v: this.shown });
     this.num.textContent = fmtMbps(this.shown);
     this.draw();
@@ -204,6 +253,7 @@ class Flyer {
     const dotX = W * 0.76, pad = 5 * dpr;
     const yOf = (v) => H - pad - (v / this.max) * (H - pad * 2);
     ctx.clearRect(0, 0, W, H);
+    gridLines(ctx, W, H, pad, dpr, green);
     // road ticks flying past
     ctx.strokeStyle = rgba(green, 0.13); ctx.lineWidth = 1 * dpr;
     const gap = 22 * dpr, off = (this.clock * speed * 1.6) % gap;
@@ -236,21 +286,36 @@ class Flyer {
   }
 }
 // Still trace of a finished phase, same style, dot at the end.
-function drawStill(cv, series) {
+// Faint top and middle lines of the scale (the label is HTML, so it is not
+// mirrored with the canvas in right-to-left layout).
+function gridLines(ctx, W, H, pad, dpr, green) {
+  ctx.save();
+  ctx.strokeStyle = rgba(green, 0.16); ctx.lineWidth = 1 * dpr; ctx.setLineDash([3 * dpr, 4 * dpr]);
+  for (const y of [pad, pad + (H - pad * 2) / 2]) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.restore();
+}
+function drawStill(cv, series, finished) {
   if (!cv.isConnected) return;
   const dpr = fitCanvas(cv); const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
   const green = cssVar("--ok", "#2fbf71"); const pad = 5 * dpr;
-  const max = Math.max(...series, 1) * 1.25;
+  const max = scaleFor(Math.max(...series, 1));
   const pts = series.map((v, i) => [pad + (i / Math.max(1, series.length - 1)) * (W - pad * 3), H - pad - (v / max) * (H - pad * 2)]);
   ctx.clearRect(0, 0, W, H);
+  gridLines(ctx, W, H, pad, dpr, green);
   const fill = ctx.createLinearGradient(0, 0, 0, H); fill.addColorStop(0, rgba(green, 0.22)); fill.addColorStop(1, rgba(green, 0));
   ctx.beginPath(); ctx.moveTo(pts[0][0], H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(pts[pts.length - 1][0], H); ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
   const fade = ctx.createLinearGradient(0, 0, W, 0); fade.addColorStop(0, rgba(green, 0.35)); fade.addColorStop(1, rgba(green, 0.95));
   ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.strokeStyle = fade; ctx.lineWidth = 1.8 * dpr; ctx.lineJoin = "round"; ctx.stroke();
   const [ex, ey] = pts[pts.length - 1];
+  if (finished) {
+    // finish line and a ringed dot: the phase ended normally
+    ctx.save(); ctx.strokeStyle = rgba(green, 0.55); ctx.lineWidth = 1 * dpr; ctx.setLineDash([2 * dpr, 2 * dpr]);
+    ctx.beginPath(); ctx.moveTo(ex, pad); ctx.lineTo(ex, H - pad); ctx.stroke(); ctx.restore();
+    ctx.beginPath(); ctx.arc(ex, ey, 5.5 * dpr, 0, Math.PI * 2); ctx.strokeStyle = green; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+  }
   ctx.save(); ctx.shadowColor = green; ctx.shadowBlur = 8 * dpr; ctx.beginPath(); ctx.arc(ex, ey, 3 * dpr, 0, Math.PI * 2); ctx.fillStyle = green; ctx.fill(); ctx.restore();
 }
-function addSpark(tile, series, running, liveValue) {
+function addSpark(tile, series, running, liveValue, finished) {
   const pts = series || [];
   const phase = tile.dataset.phase;
   if (running) {
@@ -260,10 +325,12 @@ function addSpark(tile, series, running, liveValue) {
     const val = tile.querySelector(".t-value");
     if (val) val.replaceChildren(f.num, small(" " + t("Мбит/с")));
     tile.append(f.canvas);
-    if (reduceMotion && pts.length) requestAnimationFrame(() => drawStill(f.canvas, pts));
+    f.label = scaleLabel(tile, f.scale);
+    if (reduceMotion && pts.length) requestAnimationFrame(() => drawStill(f.canvas, pts, false));
     return;
   }
   if (!pts.length) return;
+  scaleLabel(tile, scaleFor(Math.max(...pts, 1)));
   const cv = el("canvas", { class: "sp-fly still", "aria-hidden": "true" });
   const st = sparkStats(pts);
   if (st) {
@@ -271,7 +338,7 @@ function addSpark(tile, series, running, liveValue) {
     const sub = tile.querySelector(".t-sub"); if (sub && sub.textContent) sub.textContent += " · " + st.word;
   }
   tile.append(cv);
-  requestAnimationFrame(() => drawStill(cv, pts));
+  requestAnimationFrame(() => drawStill(cv, pts, finished));
 }
 
 // ---------- speed button ----------

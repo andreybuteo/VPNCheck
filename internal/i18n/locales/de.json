@@ -890,5 +890,11 @@
   "этот сервер только для скачивания": "Dieser Server ist nur für Downloads",
   "— DNS → TCP 443 → TLS с проверкой сертификата, без HTTP-запроса;": "– DNS → TCP 443 → TLS mit Zertifikatsprüfung, ohne HTTP-Anfrage;",
   "— изменился во время запуска, условия менялись": "– hat sich während des Laufs geändert, die Bedingungen waren nicht konstant",
-  "— один GET к небольшому документированному ресурсу, все этапы измеряются на этом же запросе. Редиректы не выполняются, повторов нет, тело ограничено 64 КиБ.": "– ein GET auf eine kleine dokumentierte Ressource, alle Phasen werden in derselben Anfrage gemessen. Keine Weiterleitungen, keine Wiederholungen, Inhalt auf 64 KiB begrenzt."
+  "— один GET к небольшому документированному ресурсу, все этапы измеряются на этом же запросе. Редиректы не выполняются, повторов нет, тело ограничено 64 КиБ.": "– ein GET auf eine kleine dokumentierte Ressource, alle Phasen werden in derselben Anfrage gemessen. Keine Weiterleitungen, keine Wiederholungen, Inhalt auf 64 KiB begrenzt.",
+  "Все этапы замера завершены штатно.": "Alle Phasen des Speedtests wurden regulär abgeschlossen.",
+  "Этап завершён штатно: прошли все %d с замера, передано %s МБ.": "Phase regulär beendet: volle %d s gemessen, %s MB übertragen.",
+  "шкала %d Мбит/с": "Skala %d Mbit/s",
+  "✓ %s МБ за полные %d с": "✓ %s MB in vollen %d s",
+  "✓ потолок %s МБ за %s с": "✓ Obergrenze %s MB in %s s",
+  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase regulär beendet: in %s s wurden %s MB übertragen – die Obergrenze eines Tests. Die Leitung ist schnell, die Geschwindigkeit ist bereits gemessen, mehr Datenverkehr ist nicht nötig."
 }

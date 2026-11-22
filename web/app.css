@@ -482,3 +482,7 @@ table.grid tr.explain td b { color: var(--text); }
 [dir="rtl"] details.fold[open] > summary::before { transform: rotate(-90deg); }
 /* the rate trace runs from the start edge, so time flows right to left */
 [dir="rtl"] .speedbox .sp-fly { transform: scaleX(-1); }
+
+/* scale of the speed graphs: a small HTML label over the canvas, not mirrored in RTL */
+.speedbox .sp-scale { position: absolute; inset-inline-end: calc(var(--inset) + 1px); top: 4px; z-index: 2;
+  font-size: 10px; line-height: 1; color: var(--muted); opacity: .85; pointer-events: none; font-variant-numeric: tabular-nums; }
