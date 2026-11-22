@@ -291,7 +291,6 @@
   "История пуста. Результаты каждого запуска сохраняются локально и доступны без интернета.": "History is empty. The results of every run are saved locally and are available offline.",
   "Источник, проверено %s": "Source, checked %s",
   "Итог": "Summary",
-  "Когда": "When",
   "Контрольный URL или метод не подходит (%d); это не значит, что VPN не работает": "The check URL or method is not suitable (%d); this does not mean the VPN is not working",
   "Контрольный ресурс доступен (%d)": "Check resource reachable (%d)",
   "Копировать итог": "Copy summary",
@@ -896,5 +895,11 @@
   "шкала %d Мбит/с": "scale %d Mbit/s",
   "✓ %s МБ за полные %d с": "✓ %s MB in the full %d s",
   "✓ потолок %s МБ за %s с": "✓ cap %s MB in %s s",
-  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase finished normally: %s s moved %s MB, the cap of one test. The link is fast, the speed is already measured, there is no need to move more data."
+  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase finished normally: %s s moved %s MB, the cap of one test. The link is fast, the speed is already measured, there is no need to move more data.",
+  "Замер скорости — отдельный тест": "Speed test — a separate test",
+  "Скорость замеряется отдельной кнопкой и в своё время. Её IP и маршрут могут отличаться от проверки доступности выше.": "Speed is measured with its own button and at its own time. Its IP and route may differ from the reachability check above.",
+  "идёт сейчас": "running now",
+  "⚠ другой IP, чем у проверки (%s)": "⚠ different IP than the check (%s)",
+  "⚠ другой маршрут, чем у проверки": "⚠ different route than the check",
+  "IP выхода": "Exit IP"
 }

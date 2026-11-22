@@ -1,6 +1,6 @@
 // Header (route badge, start / speed / stop buttons, theme, language),
 // warning banners, the environment passport and the "what to check" fold.
-import { t, languageList } from "./i18n.js";
+import { t, languageList, effectiveLang } from "./i18n.js";
 import {
   $, el, icon, S, settings, registry, isRunning, speedActive, apiJSON, saveSettings, toast, banner, removeBanner,
   routeLabel, proxyKindName, confName,
@@ -89,10 +89,16 @@ export function applyTheme() {
 }
 
 // Language menu: "Auto" plus the languages under their own names.
+// "Auto · Русский": shows which language Auto resolved to.
+function autoLabel() {
+  const code = effectiveLang("", S.state && S.state.app && S.state.app.systemLang);
+  const l = languageList().find(x => x.code === code);
+  return t("Авто") + (l ? " · " + l.name : "");
+}
 export function renderLangSelect() {
   const sel = $("langSelect");
   sel.replaceChildren(
-    el("option", { value: "", text: t("Авто") }),
+    el("option", { value: "", text: autoLabel() }),
     ...languageList().map(l => el("option", { value: l.code, text: l.name, lang: l.code, dir: l.rtl ? "rtl" : null })));
   sel.value = (S.state && settings().language) || "";
 }

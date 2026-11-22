@@ -46,7 +46,7 @@ async function useLanguage(code) {
 async function changeLanguage(value) {
   settings().language = value;
   await saveSettings(true);
-  await useLanguage(effectiveLang(value));
+  await useLanguage(effectiveLang(value, S.state && S.state.app && S.state.app.systemLang));
 }
 
 // ---------- start-up ----------
@@ -58,7 +58,7 @@ async function init() {
     S.csrf = sess.csrf;
     await refreshState();
     await catalog;
-    const want = effectiveLang(settings().language);
+    const want = effectiveLang(settings().language, S.state.app && S.state.app.systemLang);
     if (want !== lang()) { await loadCatalog(want); await refreshState(); }
     translateDOM(document.body);
     renderLangSelect();

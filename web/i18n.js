@@ -85,11 +85,16 @@ export function normalize(tag) {
   return languages.some(l => l.code === base) ? base : "";
 }
 
-// The language to use: the setting when set, otherwise the browser's first
-// supported language, otherwise Russian.
-export function effectiveLang(setting) {
+// The language to use: the setting when set; otherwise the Windows regional
+// format reported by the backend (it reflects the user's language better than
+// the browser list, which follows the display language: English Windows with
+// Russian formats is common); otherwise the browser's first supported
+// language; otherwise Russian.
+export function effectiveLang(setting, systemLang) {
   const fixed = normalize(setting);
   if (fixed) return fixed;
+  const sys = normalize(systemLang);
+  if (sys) return sys;
   for (const tag of navigator.languages || [navigator.language]) {
     const code = normalize(tag);
     if (code) return code;

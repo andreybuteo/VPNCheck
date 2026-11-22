@@ -201,7 +201,7 @@ func (a *API) handleState(w http.ResponseWriter, _ *http.Request) {
 		groups = append(groups, map[string]string{"id": g.ID, "name": g.Name})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"app":         map[string]any{"name": app.Name, "version": app.Version, "dataDir": a.d.Store.Dir(), "demo": a.d.Demo},
+		"app":         map[string]any{"name": app.Name, "version": app.Version, "dataDir": a.d.Store.Dir(), "demo": a.d.Demo, "systemLang": i18n.Normalize(i18n.SystemLocale())},
 		"settings":    settings,
 		"warnings":    warnings,
 		"registry":    map[string]any{"endpoints": a.d.Registry.List(), "groups": groups, "profileVersion": registry.ProfileVersion},

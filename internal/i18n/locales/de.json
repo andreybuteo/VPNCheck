@@ -291,7 +291,6 @@
   "История пуста. Результаты каждого запуска сохраняются локально и доступны без интернета.": "Der Verlauf ist leer. Die Ergebnisse jedes Laufs werden lokal gespeichert und sind ohne Internet verfügbar.",
   "Источник, проверено %s": "Quelle, geprüft am %s",
   "Итог": "Ergebnis",
-  "Когда": "Wann",
   "Контрольный URL или метод не подходит (%d); это не значит, что VPN не работает": "Prüf-URL oder Methode ungeeignet (%d); das heißt nicht, dass das VPN nicht funktioniert",
   "Контрольный ресурс доступен (%d)": "Prüfressource erreichbar (%d)",
   "Копировать итог": "Kurzfassung kopieren",
@@ -896,5 +895,11 @@
   "шкала %d Мбит/с": "Skala %d Mbit/s",
   "✓ %s МБ за полные %d с": "✓ %s MB in vollen %d s",
   "✓ потолок %s МБ за %s с": "✓ Obergrenze %s MB in %s s",
-  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase regulär beendet: in %s s wurden %s MB übertragen – die Obergrenze eines Tests. Die Leitung ist schnell, die Geschwindigkeit ist bereits gemessen, mehr Datenverkehr ist nicht nötig."
+  "Этап завершён штатно: за %s с передано %s МБ — это потолок одного замера. Канал быстрый, скорость уже измерена, дальше гонять трафик не нужно.": "Phase regulär beendet: in %s s wurden %s MB übertragen – die Obergrenze eines Tests. Die Leitung ist schnell, die Geschwindigkeit ist bereits gemessen, mehr Datenverkehr ist nicht nötig.",
+  "Замер скорости — отдельный тест": "Speedtest – ein separater Test",
+  "Скорость замеряется отдельной кнопкой и в своё время. Её IP и маршрут могут отличаться от проверки доступности выше.": "Die Geschwindigkeit wird mit eigener Schaltfläche und zu eigener Zeit gemessen. IP und Route können sich von der Erreichbarkeitsprüfung oben unterscheiden.",
+  "идёт сейчас": "läuft gerade",
+  "⚠ другой IP, чем у проверки (%s)": "⚠ andere IP als bei der Prüfung (%s)",
+  "⚠ другой маршрут, чем у проверки": "⚠ andere Route als bei der Prüfung",
+  "IP выхода": "Ausgangs-IP"
 }

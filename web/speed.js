@@ -97,8 +97,13 @@ export function renderSpeed() {
   const valMbps = (v, ph) => live(ph) ? mbps(cur.liveMbps) : (v === null || v === undefined ? "—" : mbps(v));
   const inPhase = (ph) => !!cur && cur.phase === ph;
   const nodeName = last ? t((srv && srv.name) || last.serverName) + (last.colo ? " · " + t("узел %s", last.colo) : "") : (srv ? t(srv.name) : "");
-  const first = cell(t("Скорость"), cur ? el("span", { class: "sp-run", text: t("идёт замер") }) : (last ? (last.status === "completed" ? "✓ " : "") + speedStatusName(last.status) : "—"), nodeName, last && !cur ? "st-" + last.status : "");
-  if (last && !cur && last.status === "completed") first.title = t("Все этапы замера завершены штатно.");
+  // short form under the status: "22.11 19:38 · Cloudflare · узел AMS"; the full server name is in the tooltip
+  const fullName = t((srv && srv.name) || (last && last.serverName) || "");
+  const shortName = (srv && srv.kind === "cloudflare" ? "Cloudflare" : fullName.split(" (")[0]) + (last && last.colo ? " · " + t("узел %s", last.colo) : "");
+  const firstSub = last && !cur ? [ltr(fmtShort(last.startedAt)), " · " + shortName] : nodeName;
+  const first = cell(t("Скорость"), cur ? el("span", { class: "sp-run", text: t("идёт замер") }) : (last ? (last.status === "completed" ? "✓ " : "") + speedStatusName(last.status) : "—"), "", last && !cur ? "st-" + last.status : "");
+  first.querySelector(".t-sub").append(...[].concat(firstSub));
+  first.title = [last && !cur && last.status === "completed" ? t("Все этапы замера завершены штатно.") : "", nodeName].filter(Boolean).join("\n");
   const down = cell(t("Скачивание"), valMbps(last && last.downMbps, "download"),
     inPhase("download") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.downBytes ? phaseEnd(last, "down", sp.plan) : t("загрузка с сервера")),
     inPhase("download") ? "active" : "");
@@ -115,13 +120,15 @@ export function renderSpeed() {
     metaText = phaseName(cur.phase) + ` ${cur.phaseIndex || 0}/${cur.phaseCount || 0}`;
     metaSub = cur.phaseMs ? t("%.0f из %.0f с · %s", Math.min(cur.phaseMs / 1000, cur.elapsedMs / 1000), cur.phaseMs / 1000, routeLabel(cur.route)) : routeLabel(cur.route);
   } else if (last) {
-    metaText = ltr(fmtShort(last.startedAt));
+    metaText = last.exitIp
+      ? [el("span", { class: "ip-flag", html: window.flagSVG ? window.flagSVG(last.exitCountry) : "" }), " ", ltr(last.exitIp)]
+      : t("не определён");
     metaSub = routeLabel(last.route) + (last.profileName ? " · " + last.profileName : "");
   } else {
     metaText = t("ещё не замеряли");
     metaSub = t("кнопка «Скорость» в шапке");
   }
-  const meta = cell(cur ? t("Этап") : t("Когда"), metaText, metaSub, "sp-meta");
+  const meta = cell(cur ? t("Этап") : t("IP выхода"), metaText, metaSub, "sp-meta");
   if (last && last.message && !cur) meta.title = last.message;
   // progress runs along the bottom edge of the first tile, which says "measuring"
   const bar = el("div", { class: "sp-bar" });
@@ -141,8 +148,46 @@ export function renderSpeed() {
     if (!fileOnly) addSpark(up, last.upSeries, inPhase("upload"), cur && cur.liveMbps, !cur && phaseOK(last, "up"));
   }
   if (S.flyer && !(cur && (cur.phase === "download" || cur.phase === "upload") && S.flyer.phase === cur.phase)) { S.flyer.stop(); S.flyer = null; }
-  box.replaceChildren(first, down, up, lat, meta);
+  const legend = speedLegend(cur, last);
+  box.replaceChildren(first, down, up, lat, meta, legend);
   box.classList.toggle("running", !!cur);
+}
+
+// ---- caption over the speed row: the speed test is a separate test, with its
+// own time, exit IP and route, and it says so when they differ from the check
+// shown above it.
+function runExitIP(run) {
+  const x = run && run.externalIp;
+  return x ? (x.after || x.before || "") : "";
+}
+function sameRoute(a, b) {
+  return !!a && !!b && a.mode === b.mode && (a.proxyAddr || "") === (b.proxyAddr || "");
+}
+// The speed tiles are framed as one group; this legend sits on the frame.
+function speedLegend(cur, last) {
+  const head = el("div", { class: "sp-legend" });
+  const parts = [];
+  let warn = "";
+  if (cur) {
+    parts.push(t("идёт сейчас"), routeLabel(cur.route));
+  } else if (last) {
+    const run = S.view && S.view.run;
+    if (run) {
+      const ip = runExitIP(run);
+      if (ip && last.exitIp && ip !== last.exitIp) warn = t("⚠ другой IP, чем у проверки (%s)", ip);
+      else if (!sameRoute(run.route, last.route)) warn = t("⚠ другой маршрут, чем у проверки");
+    }
+  } else {
+    parts.push(t("ещё не замеряли"));
+  }
+  const hint = el("span", { class: "hint" });
+  parts.forEach((p, i) => { if (i) hint.append(" · "); hint.append(...[].concat(p)); });
+  head.replaceChildren(
+    el("span", { class: "ip-title", text: t("Замер скорости — отдельный тест") }),
+    hint,
+    warn ? el("span", { class: "sp-warn", text: warn }) : "");
+  head.title = t("Скорость замеряется отдельной кнопкой и в своё время. Её IP и маршрут могут отличаться от проверки доступности выше.");
+  return head;
 }
 
 // ---- why a phase ended: a finished phase says so, so a short one does not
