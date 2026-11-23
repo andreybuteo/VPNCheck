@@ -24,7 +24,7 @@ import (
 )
 
 // ProfileVersion is bumped whenever default.json changes materially.
-const ProfileVersion = 2
+const ProfileVersion = 3
 
 const fileName = "registry.json"
 

@@ -2,7 +2,8 @@
 // internal/i18n/keys.json: string literals in Go code (outside tests), the
 // group/label/note texts of the built-in registry, the keys of t("…") and
 // tp(n, "…", "…", "…") in the web scripts, and Cyrillic text and title,
-// placeholder and aria-label attributes in web/index.html.
+// placeholder and aria-label attributes in web/index.html. Go files with a
+// "//i18nkeys:skip" comment are data and are left out.
 //
 //	go run ./tools/i18nkeys          # rewrite keys.json
 //	go run ./tools/i18nkeys -check   # exit 1 if keys.json is out of date
@@ -56,9 +57,18 @@ func main() {
 			if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
-			f, err := parser.ParseFile(token.NewFileSet(), p, nil, 0)
+			f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.ParseComments)
 			if err != nil {
 				fail("%s: %v", p, err)
+			}
+			// A file with a "//i18nkeys:skip" comment holds data (place names,
+			// fixtures), not interface text.
+			for _, cg := range f.Comments {
+				for _, c := range cg.List {
+					if strings.HasPrefix(c.Text, "//i18nkeys:skip") {
+						return nil
+					}
+				}
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
 				if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {

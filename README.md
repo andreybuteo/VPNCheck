@@ -29,11 +29,15 @@ your browser and talks only to `127.0.0.1`.
   the VPN.
 - **Speed test** through the same route: latency, download and upload via Cloudflare's nearest node
   (its city code is shown), or download from Hetzner in Falkenstein or Helsinki as a fixed reference.
-- **Split-routing check** ("Russia direct" group): compares the address a Russian site (Yandex
-  Internetometer) sees with the exit seen by Cloudflare through the same route, and tells whether
-  Russian sites go direct while everything else goes through the VPN: a Russian flag when they do,
-  a red card with the country they go through when they do not. The country is looked up in
-  RIPEstat (RIPE NCC). It only observes and never changes routes or VPN rules.
+- **Split-routing check** ("Russia / China / Iran direct" groups): compares the address a local
+  site sees (Yandex Internetometer, Bilibili, ifconfig.ir) with the exit seen by Cloudflare through
+  the same route, and tells whether local sites go direct while everything else goes through the
+  VPN: the home flag when they do, a red card with the country they go through when they do not.
+  The country comes from the local site's own answer (Yandex names the city, matched to a country by
+  a built-in table); no address is sent to any third party. It only observes and never changes routes or VPN
+  rules. The group of your own country is selected by default (Windows region, then language).
+  China and Iran were not tested from inside those countries; ifconfig.ir is behind Cloudflare, so
+  it tests a rule by the .ir domain, not geoip:ir.
 - **Exit IP log**: the last 10 checks and speed tests with exit IP, country flag and time; the same
   address always has the same colour, so changes of the exit are visible at a glance.
 - **History and export**: the last 100 runs, comparison of two runs, JSON/CSV export and a full

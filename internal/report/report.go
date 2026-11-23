@@ -43,15 +43,23 @@ func Redact(run *model.Run, o Options) *model.Run {
 		sp := *run.Split
 		cp.Split = &sp
 	}
+	cp.Splits = nil
+	for _, x := range run.Splits {
+		sp := *x
+		cp.Splits = append(cp.Splits, &sp)
+	}
 	if o.IncludeSensitive {
 		return &cp
 	}
-	if cp.Split != nil {
-		if cp.Split.DomesticIP != "" {
-			cp.Split.DomesticIP = i18n.T(hidden)
+	for _, sp := range append([]*model.SplitCheck{cp.Split}, cp.Splits...) {
+		if sp == nil {
+			continue
 		}
-		if cp.Split.ForeignIP != "" {
-			cp.Split.ForeignIP = i18n.T(hidden)
+		if sp.DomesticIP != "" {
+			sp.DomesticIP = i18n.T(hidden)
+		}
+		if sp.ForeignIP != "" {
+			sp.ForeignIP = i18n.T(hidden)
 		}
 	}
 	if cp.Route.ProxyAddr != "" {
@@ -563,7 +571,7 @@ func Diagnostic(run *model.Run, env json.RawMessage, o Options) ([]byte, error) 
 			i18n.T("run.results[]: transport (этап сбоя failedStage: dns|tcp|proxy|tls|http, errorKind, errorText, peerAddr, resolvedAddrs, certVerified) и http (status, location, geoBlocked/geoSignature, captcha, bodySnippet, retryAfter) хранятся раздельно; outcome — итоговая подпись. timings в мс: dnsMs, tcpMs, proxyMs, tlsMs, tlsReadyMs (старт пробы → сертификат проверен), ttfbMs; null = не измерено (например DNS за прокси)."),
 			i18n.T("Типичные картины: tcp timeout напрямую и ok через прокси = трафик программ идёт мимо VPN; reset на tls = активная блокировка по SNI/IP (DPI); http 403 с geoBlocked = сервис отказывает по стране выхода VPN (смените сервер); captcha = репутация IP выхода; tls_certificate = перехват TLS или неверные часы; 429 = лимит частоты."),
 			i18n.T("run.externalIp (если включено) — IP выхода до/после запуска и страна по данным провайдера; по умолчанию скрыт, если includesSensitiveData=false."),
-			i18n.T("run.split (если выбрана группа «Россия напрямую») — проверка раздельной маршрутизации: domesticIp видит российский сайт (Яндекс), foreignIp — зарубежный узел Cloudflare через тот же маршрут; code: split_ok | all_vpn | all_direct | same_exit | foreign_in_ru | domestic_foreign | domestic_vpn | unknown. Программа только наблюдает и не меняет правила VPN."),
+			i18n.T("run.splits[] (если выбраны группы «Россия / Китай / Иран напрямую») — проверка раздельной маршрутизации: home — своя страна, domesticIp и domesticCountry — адрес, который видит местный сайт (Яндекс, Bilibili, ifconfig.ir), foreignIp — адрес у зарубежного узла Cloudflare через тот же маршрут; code: split_ok | all_vpn | all_direct | same_exit | foreign_in_home | domestic_foreign | domestic_vpn | unknown. В отчётах 4.3 — run.split только для России. Программа только наблюдает и не меняет правила VPN."),
 		},
 		Glossary: map[string]string{
 			"tls":           i18n.T("проба: DNS → TCP 443 → TLS с проверкой сертификата, без HTTP-запроса"),
@@ -571,7 +579,7 @@ func Diagnostic(run *model.Run, env json.RawMessage, o Options) ([]byte, error) 
 			"tlsReadyMs":    i18n.T("время от старта пробы до успешной проверки сертификата; основная метрика для сравнения"),
 			"familyProven":  i18n.T("false за прокси: семейство IP конечного сервера не наблюдалось"),
 			"outcome.level": i18n.T("ok | warn (сервер ответил, но не как ожидалось, или медленно) | error (транспортная ошибка) | neutral (не проверено/отменено)"),
-			"verdict.code":  "geo_block | ip_reputation | dns_spoof | proxy_down | tls_intercept | direct_blocked_proxy_ok | route_dependent | dns_fail | dpi_reset | drop_timeout | refused | rate_limited | service_error | http_denied | profile_mismatch | slow | ok | not_probed | split_ok | split_all_vpn | split_all_direct | split_same_exit | split_foreign_in_ru | split_domestic_foreign | split_domestic_vpn | split_unknown",
+			"verdict.code":  "geo_block | ip_reputation | dns_spoof | proxy_down | tls_intercept | direct_blocked_proxy_ok | route_dependent | dns_fail | dpi_reset | drop_timeout | refused | rate_limited | service_error | http_denied | profile_mismatch | slow | ok | not_probed | split_ok | split_all_vpn | split_all_direct | split_same_exit | split_foreign_in_home | split_domestic_foreign | split_domestic_vpn | split_unknown",
 			"limits":        i18n.T("не более 4 проб одновременно, одна на хост, часового лимита нет, пауза между запусками (настраивается, по умолчанию 60 с), тайм-аут пробы 10 с"),
 		},
 		Environment: r.Environment,

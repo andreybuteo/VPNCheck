@@ -2,7 +2,7 @@
 // details, the diagnosis fold, and the start / stop / diagnose / report actions.
 import { t, tp } from "./i18n.js";
 import {
-  $, el, ltr, icon, S, settings, registry, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast, removeBanner, download, balloon,
+  $, el, ltr, icon, S, settings, registry, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast, removeBanner, download, balloon, SPLIT_GROUPS,
   fmtMs, fmtMsUnit, fmtTime, fmtShort, routeLabel, routeShort, levelText, modeName, confName, statusName, stageName, statusClass,
   LEVEL_ICON, KIND_NAME,
 } from "./core.js";
@@ -200,7 +200,7 @@ export function renderCards() {
   for (const c of cards) {
     if (!matchesFilter(c)) continue;
     // The "Russia direct" card shows the split-routing conclusion, not only reachability.
-    const split = c.id === "ru-direct" && run && !isRunning() ? verdictFor(c.id) : null;
+    const split = SPLIT_GROUPS.includes(c.id) && run && !isRunning() ? verdictFor(c.id) : null;
     const lvl = split ? split.level : c.level;
     const problem = lvl === "warn" || lvl === "error";
     const vd = run && !isRunning() && problem ? verdictFor(c.id) : null;
@@ -218,7 +218,7 @@ export function renderCards() {
       onclick: () => { S.expanded = S.expanded === c.id ? null : c.id; renderCards(); renderDetails(); },
     },
       el("div", { class: "card-title" }, icon(LEVEL_ICON[lvl] || "neutral", lvl === "running" ? "spin" : ""), el("span", { class: "card-name", text: c.name }), el("span", { class: "card-lat", text: lat })),
-      el("div", { class: "card-status" }, ...(split ? splitFlag(run.split) : []), text)));
+      el("div", { class: "card-status" }, ...(split ? splitFlag(splitOf(run, c.id)) : []), text)));
   }
   if (!nodes.length && cards.length) nodes.push(el("div", { class: "hint", text: t("Ничего не найдено по текущему фильтру.") }));
   $("cards").replaceChildren(...nodes);
@@ -265,12 +265,17 @@ export function renderDetails() {
     }
   }
   const vd = verdictFor(c.id);
-  const sp = c.id === "ru-direct" && run && run.split ? run.split : null;
+  const sp = run ? splitOf(run, c.id) : null;
   box.replaceChildren(head, ...(sp ? [splitBox(sp)] : []), ...(vd && (vd.level !== "ok" || sp) ? [verdictBox(vd, vd.title)] : []),
     el("div", { class: "table-wrap" }, el("table", { class: "grid" }, thead, el("tbody", {}, ...rows))),
     el("div", { class: "hint", text: t("Значения «—» означают «не измерено». Доступность узла не гарантирует полноценную работу приложения.") + (proxyMode ? " " + t("В режиме прокси DNS и семейство IP конечного сервера не наблюдаются («не измерено через прокси»).") : "") }));
 }
-// The flag of the country Russian sites go through (RU when they go direct).
+// The split-routing check of a group; 4.3 runs kept the Russian one in run.split.
+function splitOf(run, gid) {
+  if (!SPLIT_GROUPS.includes(gid)) return null;
+  return (run.splits || []).find(x => x.group === gid) || (gid === "ru-direct" ? run.split || null : null);
+}
+// The flag of the country home sites go through (RU when they go direct).
 function splitFlag(sp) {
   const cc = sp && sp.domesticCountry;
   if (!cc || !window.flagSVG) return [];
@@ -286,7 +291,7 @@ function splitBox(sp) {
       extra ? el("span", { class: "hint", text: extra }) : ""));
   const vpnFlag = sp.domesticVpn === true ? t("Яндекс: VPN или хостинг") : sp.domesticVpn === false ? t("Яндекс: не VPN") : "";
   return el("div", { class: "split" },
-    row(t("Российский сайт (%s) видит", t(sp.source)), sp.domesticIp, sp.domesticCountry, vpnFlag),
+    row(t("Местный сайт (%s) видит", t(sp.source)), sp.domesticIp, sp.domesticCountry, vpnFlag),
     row(t("Зарубежный узел (Cloudflare) видит"), sp.foreignIp, sp.foreignCountry, ""),
     el("div", { class: "hint", text: t("Программа только наблюдает: маршруты, прокси и правила клиента VPN она не меняет, поэтому проверка не может отключить VPN.") }));
 }
@@ -364,7 +369,7 @@ export function renderVerdicts() {
   if (run.mode === "diag" && S.diagOpenedFor !== run.id) { S.diagOpenedFor = run.id; fold.open = true; }
   const nodes = [el("div", { class: "hint", text: t("Вердикты — эвристики без захвата пакетов; у каждого указана уверенность.") })];
   const showAll = run.mode === "diag" || problems.length === 0;
-  const visible = showAll ? sorted : sorted.filter(v => v.level === "error" || v.level === "warn" || v.groupId === "anthropic" || v.groupId === "ru-direct");
+  const visible = showAll ? sorted : sorted.filter(v => v.level === "error" || v.level === "warn" || v.groupId === "anthropic" || SPLIT_GROUPS.includes(v.groupId));
   for (const v of visible.slice(0, 14)) {
     const card = verdictBox(v, t(v.group) + ": " + v.title);
     if (v.evidence && v.evidence.length) card.append(el("ul", {}, ...v.evidence.map(e => el("li", { text: e }))));

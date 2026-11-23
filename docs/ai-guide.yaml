@@ -21,7 +21,7 @@ product:
     - "Do my applications bypass the VPN (local proxy without TUN)?"
     - "Is a site blocked by DPI, by DNS, by the service's geo-restriction, or is the server down?"
     - "Which VPN server is faster / which exit IP am I using?"
-    - "Do Russian sites go direct while everything else goes through the VPN (split routing)?"
+    - "Do local sites (Russia, China, Iran) go direct while everything else goes through the VPN (split routing)?"
   not_for:
     - proving that a full application scenario works (video plays, a model call succeeds)
     - load testing, monitoring, scanning, bypassing blocks
@@ -51,7 +51,7 @@ how_it_runs:
   network_footprint:
     on_open: none (no external requests until the user presses a button)
     check_run: one TLS handshake or one small GET per endpoint; plus 2 tiny requests to Cloudflare cdn-cgi/trace for the exit IP (IP log, can be disabled)
-    split_check: "only if the ru-direct group is selected: one GET of https://yandex.ru/internet (~110 KB) after the probes, plus one RIPEstat country lookup of the address Yandex saw when it differs from the Cloudflare exit"
+    split_check: "only for the selected ru-direct / cn-direct / ir-direct groups: one GET each of yandex.ru/internet (~110 KB), api.bilibili.com/x/web-interface/zone, ifconfig.ir after the probes; the country comes from that answer (Yandex city -> built-in table), no third-party lookup"
     speed_test: Cloudflare speed endpoints or Hetzner test files; up to ~150 MB down / ~50 MB up
 
 concepts:
@@ -132,7 +132,7 @@ custom_endpoints:   # how to adapt the check list to a user's own services
     - small static resources only; never pages that require login or large downloads
     - two or three endpoints per service (web, API, CDN) make verdicts more reliable
 
-builtin_groups: [openai, anthropic, google, gdrive, youtube, telegram, github, docker, npm, python, huggingface, microsoft, cloudflare, autodesk, ru-direct]
+builtin_groups: [openai, anthropic, google, gdrive, youtube, telegram, github, docker, npm, python, huggingface, microsoft, cloudflare, autodesk, ru-direct, cn-direct, ir-direct]
 
 verdicts:   # verdict.code in the UI "Диагноз" and in the JSON report; heuristics with a confidence level
   ok: "all endpoints of the group reachable"
@@ -153,13 +153,13 @@ verdicts:   # verdict.code in the UI "Диагноз" and in the JSON report; he
   direct_blocked_proxy_ok: "fails directly, works via the proxy -> applications bypass the VPN; enable TUN or set the proxy in the application"
   route_dependent: "results differ between the two routes"
   not_probed: "skipped or cancelled"
-  # group ru-direct ("Россия напрямую"): compares the address Yandex Internetometer sees with the Cloudflare exit, same route
+  # groups ru-direct / cn-direct / ir-direct: compare the address a local site sees with the Cloudflare exit, same route; run.splits[].home = RU/CN/IR
   split_ok: "Russian sites direct, foreign exit via VPN -> nothing to change"
   split_all_vpn: "Russian sites also via VPN (same foreign address) -> if wanted, add a direct rule in the VPN client: geosite:category-ru, geoip:ru, .ru/.рф"
   split_all_direct: "everything direct (same Russian address) -> VPN not used on this route; foreign services see a Russian IP"
   split_same_exit: "same address, exit country unknown"
-  split_foreign_in_ru: "addresses differ but the foreign exit is in Russia -> choose a VPN server in another country"
-  split_domestic_foreign: "addresses differ but the address Yandex sees is in another country (RIPEstat) -> Russian sites go through another foreign server"
+  split_foreign_in_home: "addresses differ but the foreign exit is in the home country -> choose a VPN server in another country"
+  split_domestic_foreign: "addresses differ but the address the local site sees is in another country -> Russian sites go through another foreign server"
   split_domestic_vpn: "addresses differ but Yandex flags its address as VPN/hosting -> Russian sites go through another proxy, not direct"
   split_unknown: "Yandex page or exit IP not obtained (bot check, error)"
 
@@ -181,7 +181,7 @@ adaptation_recipes:   # how to tailor VPN Check to one user, step by step
   user_needs_specific_services: "Add them as custom endpoints (recipe above); disable irrelevant built-in groups in the registry or in 'Что проверять'."
   apps_bypass_vpn: "Diagnosis by two routes on a problem group; verdict direct_blocked_proxy_ok means enable TUN mode in the VPN client or configure the app's proxy."
   slow_or_metered_link: "Use speed server hetzner-* (download only) or avoid speed tests; raise the pause between runs; IP log costs ~2 tiny requests per run."
-  user_in_russia_with_split_rules: "Select the 'Россия напрямую' group (selected by default with Russian UI) and run a check on the route the apps use. The tool only observes; it never edits the VPN client's rules, so it cannot break the VPN."
+  user_with_split_rules: "Select the group of the user's country: 'Россия / Китай / Иран напрямую' (selected by default by Windows region or language) and run a check on the route the apps use. The tool only observes; it never edits the VPN client's rules, so it cannot break the VPN."
   privacy_sensitive_user: "Settings: turn off 'Журнал IP выхода' (ipLogOff=true); exports hide IPs by default."
   language: "Header language switcher; Auto follows Windows regional format."
   sharing_results_with_an_assistant: "Save the JSON report (without detailed data) and give it together with this guide."

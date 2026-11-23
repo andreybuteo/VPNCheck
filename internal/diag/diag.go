@@ -78,8 +78,8 @@ func Analyze(run *model.Run, ctx Context) []model.Verdict {
 			}
 			v.Advice = strings.TrimSpace(v.Advice + i18n.T(" Доступ аккаунта проверяется вручную в Claude; смена IP сама по себе не доказывает блокировку."))
 		}
-		if gid == "ru-direct" && run.Split != nil && !(run.Split.Code == "unknown" && v.Level == model.LevelError) {
-			v = splitVerdict(run, v)
+		if sp := run.SplitFor(gid); sp != nil && !(sp.Code == "unknown" && v.Level == model.LevelError) {
+			v = splitVerdict(sp, v)
 		}
 		out = append(out, v)
 	}

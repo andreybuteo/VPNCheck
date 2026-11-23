@@ -81,14 +81,24 @@ export function normalizeView(v) {
   if (v) v.groups = v.groups || [];
   return v;
 }
+// Groups of the "home country direct" checks (split routing).
+export const SPLIT_GROUPS = ["ru-direct", "cn-direct", "ir-direct"];
+// The user's home-country group: by the Windows region first (ru-RU, zh-CN, fa-IR), then by language.
+function homeGroup(s) {
+  const app = (S.state && S.state.app) || {};
+  const region = String(app.systemLocale || "").split("-").pop().toUpperCase();
+  const byRegion = { RU: "ru-direct", CN: "cn-direct", IR: "ir-direct" }[region];
+  if (byRegion) return byRegion;
+  return { ru: "ru-direct", fa: "ir-direct" }[effectiveLang(s.language, app.systemLang)] || "";
+}
 export async function refreshState() {
   S.state = await apiJSON("/api/state");
   normalizeView(S.state.current);
   const s = settings();
   if (!s.selectedEndpoints || s.selectedEndpoints.length === 0) {
-    // The "Russia direct" check is for users in Russia: selected by default only with Russian.
-    const ru = effectiveLang(s.language, S.state.app && S.state.app.systemLang) === "ru";
-    s.selectedEndpoints = registry().filter(e => e.enabled && (ru || e.groupId !== "ru-direct")).map(e => e.id);
+    // "Home country direct" checks: only the user's own country is selected by default.
+    const home = homeGroup(s);
+    s.selectedEndpoints = registry().filter(e => e.enabled && (!SPLIT_GROUPS.includes(e.groupId) || e.groupId === home)).map(e => e.id);
   }
   if (!S.viewingHistory) S.view = S.state.current.run ? S.state.current : S.view;
 }

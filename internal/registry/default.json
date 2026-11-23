@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "profileVersion": 2,
+  "profileVersion": 3,
   "endpoints": [
     {
       "id": "openai-chatgpt",
@@ -393,6 +393,30 @@
       "source": "https://yandex.ru/internet",
       "verifiedAt": "2026-11-23",
       "note": "Проверка раздельной маршрутизации: после проб программа один раз открывает страницу Интернетометра (около 110 КБ) и сравнивает адрес, который видит Яндекс, с адресом выхода по Cloudflare. Только наблюдение: маршруты и правила VPN не меняются."
+    },
+    {
+      "id": "cn-direct-bilibili",
+      "groupId": "cn-direct",
+      "group": "Китай напрямую",
+      "label": "Bilibili (адрес посетителя)",
+      "host": "api.bilibili.com",
+      "kind": "tls",
+      "enabled": true,
+      "source": "https://api.bilibili.com/x/web-interface/zone",
+      "verifiedAt": "2026-11-23",
+      "note": "Раздельная маршрутизация для Китая: адрес, который видит Bilibili (серверы в Китае), сравнивается с выходом по Cloudflare. Один запрос около 300 байт. Правила VPN не меняются."
+    },
+    {
+      "id": "ir-direct-ifconfig",
+      "groupId": "ir-direct",
+      "group": "Иран напрямую",
+      "label": "ifconfig.ir (адрес посетителя)",
+      "host": "ifconfig.ir",
+      "kind": "tls",
+      "enabled": true,
+      "source": "https://ifconfig.ir",
+      "verifiedAt": "2026-11-23",
+      "note": "Раздельная маршрутизация для Ирана: адрес, который видит ifconfig.ir, сравнивается с выходом по Cloudflare. Сайт за Cloudflare: проверяется правило по домену .ir, не по geoip:ir. Правила VPN не меняются."
     }
   ]
 }

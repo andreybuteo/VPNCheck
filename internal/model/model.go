@@ -333,7 +333,10 @@ type Run struct {
 	Environment json.RawMessage `json:"environment,omitempty"`
 	// Verdicts are per-group diagnostic conclusions.
 	Verdicts []Verdict `json:"verdicts,omitempty"`
-	// Split is the split-routing check (domestic sites direct, the rest via VPN).
+	// Splits are the split-routing checks ("home country direct, the rest via
+	// VPN"), one per selected profile (ru-direct, cn-direct, ir-direct).
+	Splits []*SplitCheck `json:"splits,omitempty"`
+	// Split is the Russian check as stored by version 4.3 (read-only now).
 	Split *SplitCheck `json:"split,omitempty"`
 }
 
@@ -341,16 +344,19 @@ type Run struct {
 // foreign reference node sees through the same route. It only observes: the
 // program never changes routes, proxies or the VPN client's rules.
 type SplitCheck struct {
-	Source         string `json:"source"`
-	SourceURL      string `json:"sourceUrl"`
-	DomesticIP     string `json:"domesticIp,omitempty"`
-	DomesticVPN    *bool  `json:"domesticVpn,omitempty"` // the source's own "this is a VPN/hosting" flag
+	Group       string `json:"group,omitempty"` // registry group; "" = ru-direct (version 4.3)
+	Home        string `json:"home,omitempty"`  // home country; "" = RU (version 4.3)
+	Source      string `json:"source"`
+	SourceURL   string `json:"sourceUrl"`
+	DomesticIP  string `json:"domesticIp,omitempty"`
+	DomesticVPN *bool  `json:"domesticVpn,omitempty"` // the source's own "this is a VPN/hosting" flag
 	// DomesticCountry is the country of DomesticIP (RIPEstat geolocation, or the
 	// Cloudflare country when both addresses are the same).
 	DomesticCountry string `json:"domesticCountry,omitempty"`
-	ForeignIP      string `json:"foreignIp,omitempty"`
-	ForeignCountry string `json:"foreignCountry,omitempty"`
-	// Code: split_ok | all_vpn | all_direct | same_exit | foreign_in_ru | domestic_foreign | domestic_vpn | unknown.
+	ForeignIP       string `json:"foreignIp,omitempty"`
+	ForeignCountry  string `json:"foreignCountry,omitempty"`
+	// Code: split_ok | all_vpn | all_direct | same_exit | foreign_in_home | domestic_foreign | domestic_vpn | unknown
+	// (foreign_in_ru in runs of version 4.3).
 	Code  string `json:"code"`
 	Error string `json:"error,omitempty"`
 }
@@ -372,6 +378,19 @@ type RunSummary struct {
 	ExitCountry string `json:"exitCountry,omitempty"`
 	ExitFrom    string `json:"exitFrom,omitempty"` // the IP at the start, when it changed during the run
 	ExitKnown   bool   `json:"exitKnown,omitempty"`
+}
+
+// SplitFor returns the split-routing check of a group, also from 4.3 runs.
+func (r *Run) SplitFor(group string) *SplitCheck {
+	for _, s := range r.Splits {
+		if s.Group == group {
+			return s
+		}
+	}
+	if group == "ru-direct" {
+		return r.Split
+	}
+	return nil
 }
 
 // Summary builds the history entry for a run.
