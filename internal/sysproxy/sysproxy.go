@@ -55,8 +55,8 @@ func Detect() Hint {
 		h.Found = true
 		h.Sources = append(h.Sources, i18n.T("Настройки прокси Windows (WinINET, HKCU)"))
 		h.Enabled = enabled
-		h.Server = sanitize(server)
-		h.PAC = sanitize(pac)
+		h.Server = safeSetting(server)
+		h.PAC = safeSetting(pac)
 		if pac != "" {
 			h.Notes = append(h.Notes, i18n.T("Обнаружен PAC/автоконфигурация (")+h.PAC+i18n.T("): в этой версии не поддерживается; укажите прокси вручную."))
 		}
@@ -100,6 +100,14 @@ func firstEnv(k string) string {
 		return v
 	}
 	return os.Getenv(strings.ToLower(k))
+}
+
+// Unsupported credentials must never enter the passport, even in malformed settings.
+func safeSetting(s string) string {
+	if strings.Contains(s, "@") {
+		return i18n.T("скрыто")
+	}
+	return sanitize(s)
 }
 
 func sanitize(s string) string {
@@ -200,7 +208,7 @@ func parseEnvProxy(v string) (clean string, hadCreds bool, rc *model.RouteConfig
 	if !strings.Contains(v, "://") {
 		// NO_PROXY lists or bare host:port.
 		if strings.Contains(v, ",") || strings.Contains(v, "@") {
-			return sanitize(strings.ReplaceAll(v, "@", "["+i18n.T("скрыто")+"]@")), strings.Contains(v, "@"), nil
+			return safeSetting(v), strings.Contains(v, "@"), nil
 		}
 		if addr := cleanAddr(v); addr != "" {
 			return addr, false, &model.RouteConfig{Mode: model.RouteProxy, ProxyKind: model.ProxyHTTP, ProxyAddr: addr}
@@ -209,7 +217,7 @@ func parseEnvProxy(v string) (clean string, hadCreds bool, rc *model.RouteConfig
 	}
 	u, err := url.Parse(v)
 	if err != nil {
-		return sanitize(v), false, nil
+		return safeSetting(v), strings.Contains(v, "@"), nil
 	}
 	if u.User != nil {
 		hadCreds = true

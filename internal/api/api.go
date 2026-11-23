@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,10 +128,21 @@ func writeErr(w http.ResponseWriter, status int, code, msg string, extra map[str
 }
 
 func readJSON(r *http.Request, v any, limit int64) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, limit))
+	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, limit))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return errors.New(i18n.T("Тело запроса превышает допустимый размер."))
+		}
+		return err
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return errors.New(i18n.T("некорректный JSON: ") + err.Error())
+	}
+	if len(bytes.TrimSpace(body[dec.InputOffset():])) != 0 {
+		return errors.New(i18n.T("Ожидался один объект JSON."))
 	}
 	return nil
 }
@@ -191,6 +203,9 @@ func (a *API) handleState(w http.ResponseWriter, _ *http.Request) {
 	settings := a.settings
 	warnings := append([]string(nil), a.warnings...)
 	a.mu.Unlock()
+	if err := a.d.Limiter.SaveError(); err != nil {
+		warnings = append(warnings, i18n.T("Не удалось сохранить ограничения частоты: %s", err))
+	}
 	run, prog := a.d.Runner.Snapshot()
 	history, _ := a.d.Store.ListRuns()
 	if history == nil {
@@ -296,14 +311,15 @@ func (a *API) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid", err.Error(), nil)
 		return
 	}
+	a.mu.Lock()
 	if err := a.d.Store.SaveSettings(s); err != nil {
+		a.mu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "store", i18n.T("не удалось сохранить настройки: ")+err.Error(), nil)
 		return
 	}
-	a.mu.Lock()
 	a.settings = s
-	a.mu.Unlock()
 	a.applyCooldown(s)
+	a.mu.Unlock()
 	writeJSON(w, http.StatusOK, s)
 }
 
@@ -351,7 +367,10 @@ func (a *API) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		var ce *limiter.CooldownError
+		var storageErr *os.PathError
 		switch {
+		case errors.As(err, &storageErr):
+			writeErr(w, http.StatusInternalServerError, "store", i18n.T("Не удалось сохранить ограничения частоты: %s", err), nil)
 		case errors.As(err, &ce):
 			writeErr(w, http.StatusTooManyRequests, "cooldown", i18n.T("Между запусками нужна пауза %d с. Следующий запуск через %d с.", int(a.d.Limiter.Cooldown().Seconds()), int(ce.Wait.Seconds())+1), map[string]any{"until": ce.Until.UTC()})
 		case errors.Is(err, limiter.ErrRunActive):
@@ -666,7 +685,10 @@ func (a *API) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		var ce *limiter.CooldownError
+		var storageErr *os.PathError
 		switch {
+		case errors.As(err, &storageErr):
+			writeErr(w, http.StatusInternalServerError, "store", i18n.T("Не удалось сохранить ограничения частоты: %s", err), nil)
 		case errors.As(err, &ce):
 			writeErr(w, http.StatusTooManyRequests, "cooldown", i18n.T("Между запусками нужна пауза %d с. Диагностика возможна через %d с.", int(a.d.Limiter.Cooldown().Seconds()), int(ce.Wait.Seconds())+1), map[string]any{"until": ce.Until.UTC()})
 		case errors.Is(err, limiter.ErrRunActive):

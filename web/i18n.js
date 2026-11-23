@@ -57,9 +57,9 @@ export function sprintf(fmt, args) {
 // the catalog keys are trimmed, so " (до " is found as "(до" and padded back.
 function lookup(src) {
   if (current === SOURCE || !src) return src;
-  if (catalog[src]) return catalog[src];
+  if (Object.hasOwn(catalog, src)) return catalog[src];
   const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(src);
-  const hit = m && m[2] && catalog[m[2]];
+  const hit = m && m[2] && Object.hasOwn(catalog, m[2]) && catalog[m[2]];
   return hit ? m[1] + hit + m[3] : src;
 }
 

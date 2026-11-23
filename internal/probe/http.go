@@ -84,14 +84,14 @@ func rateLimitReset(h http.Header, now time.Time) (time.Time, bool) {
 // detectCaptcha is a conservative heuristic for bot-challenge pages. It only
 // reports true for blocking statuses combined with well-known markers.
 func detectCaptcha(status int, h http.Header, body []byte) bool {
-	if status != 403 && status != 429 && status != 503 && status != 401 {
-		return false
-	}
 	if strings.EqualFold(h.Get("cf-mitigated"), "challenge") {
 		return true
 	}
 	if strings.EqualFold(h.Get("x-amzn-waf-action"), "challenge") {
 		return true
+	}
+	if status != 403 && status != 429 && status != 503 && status != 401 {
+		return false
 	}
 	lower := strings.ToLower(string(body))
 	for _, m := range []string{"cf-chl", "challenge-platform", "captcha", "just a moment", "verify you are human", "_cf_chl_opt"} {

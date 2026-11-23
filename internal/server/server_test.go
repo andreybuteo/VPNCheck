@@ -313,3 +313,23 @@ func TestUnknownStaticIs404(t *testing.T) {
 		t.Fatalf("want 404, got %d", resp.StatusCode)
 	}
 }
+
+func TestSuccessfulSessionRotatesRelaunchToken(t *testing.T) {
+	s, _ := newTestServer(t)
+	first := s.LaunchURL()
+	c := noRedirectClient()
+	for _, step := range []struct {
+		url  string
+		want int
+	}{{first, 303}, {first, 403}} {
+		resp, err := c.Get(step.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != step.want {
+			t.Fatalf("status %d, want %d", resp.StatusCode, step.want)
+		}
+	}
+	authedClient(t, s)
+}

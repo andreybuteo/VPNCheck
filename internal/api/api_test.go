@@ -29,8 +29,8 @@ func (s stubProber) Probe(_ context.Context, ep model.Endpoint) model.ProbeResul
 	return model.ProbeResult{EndpointID: ep.ID, GroupID: ep.GroupID, Host: ep.Host, Kind: ep.Kind, Attempt: 1, StartedAt: time.Now(),
 		Timings: model.Timings{TLSReadyMs: &ms}, Transport: model.Transport{OK: true, CertVerified: true}}
 }
-func (s stubProber) FetchSmall(context.Context, string, int64) (int, []byte, error) {
-	return 500, nil, nil
+func (s stubProber) FetchSmall(context.Context, string, int64) (model.HTTPResult, []byte, error) {
+	return model.HTTPResult{Status: 500}, nil, nil
 }
 
 type client struct {
@@ -283,5 +283,17 @@ func TestRegistryEndpoints(t *testing.T) {
 	}
 	if code := cl.do("POST", "/api/registry/reset", nil, &res); code != 200 {
 		t.Fatalf("reset: %d", code)
+	}
+}
+
+func TestReadJSONRejectsTrailingOrOversizeBodies(t *testing.T) {
+	for _, raw := range []string{`{}{}`, "{}       "} {
+		req, err := http.NewRequest("POST", "/", strings.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := readJSON(req, &struct{}{}, 4); err == nil {
+			t.Fatal("invalid request accepted")
+		}
 	}
 }

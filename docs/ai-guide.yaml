@@ -102,7 +102,7 @@ settings:   # settings.json; changed in the UI (gear icon "Настройки"),
   speedAcknowledged: { type: bool, meaning: "user ticked 'don't ask again' in the speed confirmation" }
   language: { type: enum, values: ["", ru, en, de, zh, fa, ar], default: "", meaning: "'' = Auto: Windows regional format, then browser, then ru" }
   theme: { type: enum, values: [dark, light] }
-  selectedEndpoints: { type: "[]string", meaning: "endpoint ids for the next fast run; empty = all enabled" }
+  selectedEndpoints: { type: "[]string", meaning: "endpoint ids for the next fast run; empty = defaults: all groups plus the "direct" group of the user's own country" }
   stabilityEndpoints: { type: "[]string", max: 5 }
 
 custom_endpoints:   # how to adapt the check list to a user's own services

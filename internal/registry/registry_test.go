@@ -260,3 +260,22 @@ func TestReset(t *testing.T) {
 		t.Fatal("reset must drop custom points")
 	}
 }
+
+func TestSettingsSurviveFailedRegistryWrite(t *testing.T) {
+	r, st := newReg(t)
+	ep := r.List()[0]
+	data, _ := r.Export()
+	if err := r.Import(append(data, '{')); err == nil {
+		t.Fatal("trailing data accepted")
+	}
+	if err := os.Mkdir(filepath.Join(st.Dir(), fileName), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetEnabled(ep.ID, !ep.Enabled); err == nil {
+		t.Fatal("expected write failure")
+	}
+	if got, _ := r.Get(ep.ID); got.Enabled != ep.Enabled {
+		t.Fatal("failed write changed registry")
+	}
+
+}

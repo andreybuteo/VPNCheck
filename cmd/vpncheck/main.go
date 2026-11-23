@@ -76,9 +76,11 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 	instPath := filepath.Join(dir, "instance.json")
 	if info, ok := readInstance(instPath); ok && instanceAlive(info) {
 		logger.Printf("уже запущен экземпляр на порту %d, открываю его", info.Port)
+		launchURL := fmt.Sprintf("http://127.0.0.1:%d/session?t=%s", info.Port, info.Token)
 		if !noBrowser {
-			return openBrowser(fmt.Sprintf("http://127.0.0.1:%d/session?t=%s", info.Port, info.Token))
+			return openBrowser(launchURL)
 		}
+		fmt.Println(i18n.T("Откройте в браузере:"), launchURL)
 		return nil
 	}
 
@@ -107,20 +109,14 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 		lim.RunCooldown = time.Duration(settings.RunCooldownSec) * time.Second
 	}
 
-	var runr *runner.Runner
-	var speedr *speed.Runner
+	var instancePort int
+	persistToken := func(token string) {
+		if err := writeInstance(instPath, instanceInfo{PID: os.Getpid(), Port: instancePort, Token: token}); err != nil {
+			logger.Printf("не удалось записать instance.json: %v", err)
+		}
+	}
 	srv, err := server.New(server.Config{
-		UI:   web.FS(),
-		Port: port,
-		OnQuit: func() {
-			if runr != nil {
-				runr.Cancel()
-			}
-			if speedr != nil {
-				speedr.Cancel()
-			}
-			quit()
-		},
+		UI: web.FS(), Port: port, OnQuit: quit, OnLaunchToken: persistToken,
 		Logger: logger,
 	})
 	if err != nil {
@@ -136,7 +132,7 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 	if demoMode {
 		runnerDeps.NewProber = demo.New
 	}
-	runr = runner.New(runnerDeps)
+	runr := runner.New(runnerDeps)
 	speedDeps := speed.Deps{Store: st, Limiter: lim, Publish: srv.Hub().Publish, Logger: logger, Demo: demoMode,
 		NewMeter: func(route model.RouteConfig) speed.Meter {
 			return speed.NewHTTPMeter(probe.New(probe.Options{Route: route}), speed.Config{})
@@ -144,7 +140,7 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 	if demoMode {
 		speedDeps.NewMeter = demo.NewSpeedMeter
 	}
-	speedr = speed.NewRunner(speedDeps)
+	speedr := speed.NewRunner(speedDeps)
 	api.Mount(api.Deps{
 		Demo:         demoMode,
 		Server:       srv,
@@ -163,9 +159,8 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 	}
 	logger.Printf("слушаю %s", srv.BaseURL())
 
-	if err := writeInstance(instPath, instanceInfo{PID: os.Getpid(), Port: srv.Port(), Token: srv.LaunchToken()}); err != nil {
-		logger.Printf("не удалось записать instance.json: %v", err)
-	}
+	instancePort = srv.Port()
+	persistToken(srv.LaunchToken())
 	// Remove the instance file only if it is still ours: a newer instance may
 	// have replaced it while this one was shutting down.
 	defer func() {
@@ -179,7 +174,7 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 
 	if !noBrowser {
 		if err := openBrowser(srv.LaunchURL()); err != nil {
-			logger.Printf("не удалось открыть браузер: %v. Откройте вручную: %s", err, srv.LaunchURL())
+			fmt.Fprintln(os.Stderr, i18n.T("не удалось открыть браузер: %v. Откройте вручную: %s", err, srv.LaunchURL()))
 		}
 	} else {
 		fmt.Println(i18n.T("Откройте в браузере:"), srv.LaunchURL())
@@ -193,9 +188,12 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 		}
 	}
 	logger.Printf("завершение")
-	if runr.Cancel() {
+	defer func() {
+		runr.Cancel()
+		speedr.Cancel()
 		runr.Wait()
-	}
+		speedr.Wait()
+	}()
 	shCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return srv.Shutdown(shCtx)

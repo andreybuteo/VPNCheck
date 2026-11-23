@@ -114,6 +114,10 @@ func splitVerdict(s *model.SplitCheck, base model.Verdict) model.Verdict {
 		v.Confidence = "low"
 		v.Title = i18n.T("Адрес для местных сайтов не определён")
 		v.Explanation = i18n.T("Не удалось сравнить адреса: %s.", firstNonEmpty(s.Error, i18n.T("внешний IP не получен")))
+		if s.DomesticIP != "" && s.ForeignIP != "" {
+			v.Title = i18n.T("Маршрут местных сайтов не определён")
+			v.Explanation = i18n.T("Узлы видят разные адреса. Данных о стране выхода или семействе IP недостаточно, чтобы подтвердить раздельную маршрутизацию.")
+		}
 		v.Advice = i18n.T("Повторите проверку позже. Доступность сайтов от этого не зависит.")
 	}
 	return v

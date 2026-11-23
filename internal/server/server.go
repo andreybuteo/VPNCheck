@@ -42,6 +42,8 @@ type Config struct {
 	Port int
 	// OnQuit is invoked after POST /api/quit has been answered.
 	OnQuit func()
+	// OnLaunchToken stores the next one-time token for reopening this instance.
+	OnLaunchToken func(string)
 	// Logger receives diagnostic lines; nil disables logging.
 	Logger *log.Logger
 }
@@ -55,6 +57,7 @@ type Server struct {
 	httpSrv *http.Server
 	hub     *Hub
 
+	launchMu    sync.Mutex
 	launchToken string
 	session     string
 	csrf        string
@@ -95,7 +98,11 @@ func randomToken() string {
 func (s *Server) Hub() *Hub { return s.hub }
 
 // LaunchToken is the one-time token used to establish the browser session.
-func (s *Server) LaunchToken() string { return s.launchToken }
+func (s *Server) LaunchToken() string {
+	s.launchMu.Lock()
+	defer s.launchMu.Unlock()
+	return s.launchToken
+}
 
 // Listen binds 127.0.0.1 on the configured port.
 func (s *Server) Listen() error {
@@ -137,7 +144,7 @@ func (s *Server) BaseURL() string {
 
 // LaunchURL returns the URL that establishes the browser session.
 func (s *Server) LaunchURL() string {
-	return s.BaseURL() + "/session?t=" + s.launchToken
+	return s.BaseURL() + "/session?t=" + s.LaunchToken()
 }
 
 // Serve blocks until the server is shut down.
@@ -256,10 +263,21 @@ func (s *Server) requireSession(next http.Handler) http.Handler {
 
 // handleSession exchanges the launch token for the session cookie.
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	s.launchMu.Lock()
+	defer s.launchMu.Unlock()
 	t := r.URL.Query().Get("t")
 	if subtle.ConstantTimeCompare([]byte(t), []byte(s.launchToken)) != 1 {
 		http.Error(w, "invalid launch token", http.StatusForbidden)
 		return
+	}
+	s.launchToken = randomToken()
+	if s.cfg.OnLaunchToken != nil {
+		s.cfg.OnLaunchToken(s.launchToken)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,

@@ -70,18 +70,18 @@ func (f *fakeProber) Probe(ctx context.Context, ep model.Endpoint) model.ProbeRe
 	return res
 }
 
-func (f *fakeProber) FetchSmall(ctx context.Context, url string, limit int64) (int, []byte, error) {
+func (f *fakeProber) FetchSmall(ctx context.Context, url string, limit int64) (model.HTTPResult, []byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if strings.Contains(url, "yandex.ru") {
-		return 200, []byte(`<html>{"ip":{"v4":"192.0.2.10","v6":null},"isp":{"isVpn":false},"clientRegion":{"name":"Москва","ip":"Москва","id":213}}</html>`), nil
+		return model.HTTPResult{Status: 200}, []byte(`<html>{"ip":{"v4":"192.0.2.10","v6":null},"isp":{"isVpn":false},"clientRegion":{"name":"Москва","ip":"Москва","id":213}}</html>`), nil
 	}
 	if f.traceIPs == nil || len(*f.traceIPs) == 0 {
-		return 500, nil, nil
+		return model.HTTPResult{Status: 500}, nil, nil
 	}
 	ip := (*f.traceIPs)[0]
 	*f.traceIPs = (*f.traceIPs)[1:]
-	return 200, []byte("fl=1\nip=" + ip + "\nloc=DE\n"), nil
+	return model.HTTPResult{Status: 200}, []byte("fl=1\nip=" + ip + "\nloc=DE\n"), nil
 }
 
 type harness struct {
@@ -415,5 +415,15 @@ func TestDiagModeProbesBothRoutesAndProducesVerdicts(t *testing.T) {
 	run2, _ := h2.st.LoadRun(sum2.ID)
 	if len(run2.Verdicts) != 3 {
 		t.Fatalf("fast run verdicts: %d", len(run2.Verdicts))
+	}
+}
+
+func TestSnapshotKeepsItsIPObservation(t *testing.T) {
+	r := New(Deps{})
+	r.run = &model.Run{ExternalIP: &model.ExternalIP{Before: "192.0.2.1"}}
+	snapshot, _ := r.Snapshot()
+	r.run.ExternalIP.After = "192.0.2.2"
+	if snapshot.ExternalIP.After != "" {
+		t.Fatal("live observation changed an earlier snapshot")
 	}
 }

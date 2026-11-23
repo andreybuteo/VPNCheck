@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	"vpncheck/internal/app"
@@ -62,7 +63,10 @@ func (a *API) handleSpeedStart(w http.ResponseWriter, r *http.Request) {
 		var ce *limiter.CooldownError
 		var dc *limiter.DailyCapError
 		var be *limiter.BlockedError
+		var storageErr *os.PathError
 		switch {
+		case errors.As(err, &storageErr):
+			writeErr(w, http.StatusInternalServerError, "store", i18n.T("Не удалось сохранить ограничения частоты: %s", err), nil)
 		case errors.As(err, &ce):
 			writeErr(w, http.StatusTooManyRequests, "speed_cooldown", i18n.T("Между замерами скорости нужна пауза %d мин. Следующий замер через %d с.", int(app.SpeedCooldown.Minutes()), int(ce.Wait.Seconds())+1), map[string]any{"until": ce.Until.UTC()})
 		case errors.As(err, &dc):
@@ -87,7 +91,16 @@ func (a *API) handleSpeedCancel(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *API) handleSpeedDelete(w http.ResponseWriter, r *http.Request) {
-	if a.d.Speed == nil || !a.d.Speed.Delete(r.PathValue("id")) {
+	var deleted bool
+	if a.d.Speed != nil {
+		var err error
+		deleted, err = a.d.Speed.Delete(r.PathValue("id"))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "store", err.Error(), nil)
+			return
+		}
+	}
+	if !deleted {
 		writeErr(w, http.StatusNotFound, "not_found", i18n.T("Замер не найден."), nil)
 		return
 	}

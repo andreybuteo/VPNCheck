@@ -118,28 +118,28 @@ func (p *Prober) Probe(ctx context.Context, ep model.Endpoint) model.ProbeResult
 }
 
 // FetchSmall fakes the external-IP provider.
-func (p *Prober) FetchSmall(ctx context.Context, url string, limit int64) (int, []byte, error) {
+func (p *Prober) FetchSmall(ctx context.Context, url string, limit int64) (model.HTTPResult, []byte, error) {
 	select {
 	case <-time.After(200 * time.Millisecond):
 	case <-ctx.Done():
-		return 0, nil, ctx.Err()
+		return model.HTTPResult{}, nil, ctx.Err()
 	}
 	if strings.Contains(url, "bilibili.com") || strings.Contains(url, "ifconfig.ir") {
 		// The other home countries go through the VPN in the demo: red cards.
 		if p.o.Route.Mode == model.RouteProxy {
-			return 200, []byte(`{"code":0,"data":{"addr":"198.51.100.24","country":"荷兰","province":"北荷兰省"}}`), nil
+			return model.HTTPResult{Status: 200}, []byte(`{"code":0,"data":{"addr":"198.51.100.24","country":"荷兰","province":"北荷兰省"}}`), nil
 		}
-		return 200, []byte(`{"code":0,"data":{"addr":"203.0.113.77","country":"德国","province":"黑森州"}}`), nil
+		return model.HTTPResult{Status: 200}, []byte(`{"code":0,"data":{"addr":"203.0.113.77","country":"德国","province":"黑森州"}}`), nil
 	}
 	if strings.Contains(url, "yandex.ru") {
 		// Split routing: direct on the system route, everything via the VPN through the proxy.
 		if p.o.Route.Mode == model.RouteProxy {
-			return 200, []byte(yandexViaVPN), nil
+			return model.HTTPResult{Status: 200}, []byte(yandexViaVPN), nil
 		}
-		return 200, []byte(yandexDirect), nil
+		return model.HTTPResult{Status: 200}, []byte(yandexDirect), nil
 	}
 	if p.o.Route.Mode == model.RouteProxy {
-		return 200, []byte("fl=demo\nip=198.51.100.24\nloc=NL\n"), nil
+		return model.HTTPResult{Status: 200}, []byte("fl=demo\nip=198.51.100.24\nloc=NL\n"), nil
 	}
-	return 200, []byte("fl=demo\nip=203.0.113.77\nloc=DE\n"), nil
+	return model.HTTPResult{Status: 200}, []byte("fl=demo\nip=203.0.113.77\nloc=DE\n"), nil
 }

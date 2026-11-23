@@ -427,3 +427,18 @@ func TestHelpers(t *testing.T) {
 		t.Errorf("sanitizeText cap: %q", got)
 	}
 }
+
+func TestSmallObservationHonoursResponseMetadataAndReadErrors(t *testing.T) {
+	s := newTLSServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "90")
+		w.Header().Set("Content-Length", "30")
+		w.Header().Set("cf-mitigated", "challenge")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("partial"))
+	})
+	p := New(testOptions(s, nil))
+	result, _, err := p.FetchSmall(context.Background(), s.URL, 4096)
+	if err == nil || result.Status != 429 || !result.Captcha || result.RateLimitReset == "" {
+		t.Fatalf("incomplete observation: %+v, error %v", result, err)
+	}
+}

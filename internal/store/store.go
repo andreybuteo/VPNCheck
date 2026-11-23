@@ -134,10 +134,11 @@ func (s *Store) SaveRun(run *model.Run) error {
 	if err != nil {
 		return err
 	}
-	run.SchemaVersion = model.SchemaVersion
+	snapshot := *run
+	snapshot.SchemaVersion = model.SchemaVersion
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := atomicWrite(path, run); err != nil {
+	if err := atomicWrite(path, &snapshot); err != nil {
 		return err
 	}
 	idx := s.readIndexLocked()

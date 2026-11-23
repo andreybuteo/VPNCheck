@@ -43,7 +43,11 @@ export function renderHeader() {
   $("btnQuit").disabled = false;
 
   if (S.state.app.demo) banner("warn", t("ДЕМО-РЕЖИМ для проверки интерфейса: результаты подставные, сетевые запросы не выполняются, данные хранятся в отдельном каталоге."), "demo");
-  for (const [i, w] of (S.state.warnings || []).entries()) banner("warn", w, "warn" + i);
+  const warnings = S.state.warnings || [];
+  for (const old of $("banners").querySelectorAll('[data-key^="warn"]')) {
+    if (Number(old.dataset.key.slice(4)) >= warnings.length) old.remove();
+  }
+  for (const [i, w] of warnings.entries()) banner("warn", w, "warn" + i);
   if (sp && sp.found && sp.pac) banner("info", t("Обнаружен PAC/автоконфигурация прокси: в этой версии не поддерживается, укажите прокси вручную."), "pac");
   else removeBanner("pac");
 }

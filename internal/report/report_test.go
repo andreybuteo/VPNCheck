@@ -165,3 +165,49 @@ func TestCompare(t *testing.T) {
 		t.Errorf("stability median expected 200, got %v", c4.Rows[0].BeforeMs)
 	}
 }
+
+func TestPrivacyAcrossExports(t *testing.T) {
+	run := sampleRun()
+	run.AltRoute = &model.RouteConfig{Mode: model.RouteProxy, ProxyAddr: "proxy.example:8181"}
+	run.Split = &model.SplitCheck{DomesticIP: "192.0.2.11"}
+	run.Splits = []*model.SplitCheck{nil, {Group: "cn-direct", ForeignIP: "2001:db8::18"}}
+	run.Environment = json.RawMessage(`{"adapters":[{"ipv4":["192.0.2.50"]}],"proxies":{"pac":"https://pac.example/private","notes":["PAC https://pac.example/private"],"env":{"HTTPS_PROXY":"other.example:8000"}},"verdict":{"mode":"proxy","text":"other.example:8000","suggestedRoute":{"proxyAddr":"other.example:8000"}}}`)
+	evidence := "proxy.example:8181 reported 192.0.2.11 and 2001:db8::18"
+	run.Verdicts = []model.Verdict{{Title: evidence, Evidence: []string{evidence}}}
+	run.Results[0].HTTP.BodySnippet = evidence
+	run.Results[0].Transport.ErrorText = run.Endpoints[1].URL
+	before, _ := json.Marshal(run)
+	j, err := ExportJSON(run, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Diagnostic(run, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range [][]byte{j, d, ExportCSV(run, Options{}), []byte(Summary(run, Options{}))} {
+		for _, secret := range []string{"proxy.example", "pac.example", "other.example", "192.0.2.11", "192.0.2.50", "2001:db8::18", "SECRET"} {
+			if strings.Contains(string(data), secret) {
+				t.Errorf("redaction missed %q", secret)
+			}
+		}
+	}
+	after, _ := json.Marshal(run)
+	if string(after) != string(before) {
+		t.Fatal("redaction changed history")
+	}
+	full, _ := Diagnostic(run, nil, Options{IncludeSensitive: true})
+	if !strings.Contains(string(full), evidence) || !strings.Contains(string(full), "pac.example") {
+		t.Fatal("detailed report lost data")
+	}
+}
+
+func TestSummaryCountsEachSkippedProbeOnce(t *testing.T) {
+	run := sampleRun()
+	run.Counts.Limited, run.Counts.Skipped = 2, 1
+	run.Results[0].HTTP.Status = 429
+	run.Results[1].Skipped = true
+	if !strings.Contains(Summary(run, Options{}), "ограничений/пропусков: 2") {
+		t.Fatal("skipped probe counted twice")
+	}
+}

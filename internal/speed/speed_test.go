@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,8 +38,11 @@ func (f *fakeCF) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "120")
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
-	case "challenge":
+	case "challenge", "challenge200":
 		w.Header().Set("cf-mitigated", "challenge")
+		if m == "challenge200" {
+			return
+		}
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -147,11 +152,8 @@ func TestDownloadStopsAtByteCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !th.CapReached || th.Bytes < 6<<20 {
+	if !th.CapReached || th.Bytes != 6<<20 {
 		t.Fatalf("cap not reached: %+v", th)
-	}
-	if th.Bytes > 6<<20+2*(64<<10)+(1<<20) {
-		t.Fatalf("read far beyond the cap: %d bytes", th.Bytes)
 	}
 	if time.Since(start) > 4*time.Second {
 		t.Fatalf("cap did not stop the phase early: %v", time.Since(start))
@@ -182,7 +184,7 @@ func TestUploadCountsAndRespectsCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !th.CapReached || th.Bytes < 3<<20 || f.upBytes.Load() == 0 {
+	if !th.CapReached || th.Bytes != 3<<20 || f.upBytes.Load() != 3<<20 {
 		t.Fatalf("upload: %+v server got %d", th, f.upBytes.Load())
 	}
 }
@@ -216,7 +218,7 @@ func TestRefusalsStopAtOnce(t *testing.T) {
 	if n := f.downReqs.Load(); n != 0 {
 		t.Fatalf("download handler must not be reached on 429, got %d", n)
 	}
-	f.mode.Store("challenge")
+	f.mode.Store("challenge200")
 	_, err = m.Latency(context.Background(), cf)
 	if !errors.As(err, &he) || !he.Challenge || !he.Stop() {
 		t.Fatalf("challenge: %v", err)
@@ -252,14 +254,17 @@ func TestHelpers(t *testing.T) {
 
 // scripted is a fake meter for runner tests.
 type scripted struct {
-	downErr error
-	mu      sync.Mutex
-	calls   []string
+	downErr   error
+	exitErr   error
+	exitCalls int
+	mu        sync.Mutex
+	calls     []string
 }
 
 func (s *scripted) Close() {}
 func (s *scripted) ExitIP(context.Context) (string, string, error) {
-	return "203.0.113.5", "DE", nil
+	s.exitCalls++
+	return "203.0.113.5", "DE", s.exitErr
 }
 func (s *scripted) Latency(context.Context, Server) (Latency, error) {
 	s.mu.Lock()
@@ -326,7 +331,7 @@ func TestRunnerCompletesAndPersists(t *testing.T) {
 	if len(r2.History()) != 1 {
 		t.Fatal("history not persisted")
 	}
-	if !r2.Delete(h[0].ID) || len(r2.History()) != 0 {
+	if deleted, err := r2.Delete(h[0].ID); err != nil || !deleted || len(r2.History()) != 0 {
 		t.Fatal("delete")
 	}
 }
@@ -379,5 +384,37 @@ func TestRunnerRejectsBadInput(t *testing.T) {
 	}
 	if _, err := r.Start(Request{Route: model.RouteConfig{Mode: model.RouteProxy, ProxyKind: "http", ProxyAddr: "bad"}, ServerID: "cloudflare"}); err == nil {
 		t.Fatal("bad proxy accepted")
+	}
+}
+
+func TestHistoryWriteFailureIsVisible(t *testing.T) {
+	r, _, st := newRunner(t, &scripted{})
+	if err := os.Mkdir(filepath.Join(st.Dir(), historyFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Start(Request{Route: sysRoute, ServerID: "cloudflare"}); err != nil {
+		t.Fatal(err)
+	}
+	r.Wait()
+	h := r.History()
+	if len(h) != 1 || !strings.Contains(h[0].Message, "сохранить") {
+		t.Fatal("missing history warning")
+	}
+	if deleted, err := r.Delete(h[0].ID); deleted || err == nil || len(r.History()) != 1 {
+		t.Fatal("failed deletion reported as success")
+	}
+}
+
+func TestSpeedObservesTraceCooldown(t *testing.T) {
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	m := &scripted{exitErr: &HTTPError{Status: 429, Until: until}}
+	r, _, _ := newRunner(t, m)
+	if _, _, err := r.observeExit(context.Background(), m); err == nil {
+		t.Fatal("expected refusal")
+	}
+	_, _, err := r.observeExit(context.Background(), m)
+	var blocked *limiter.Allowance
+	if !errors.As(err, &blocked) || !blocked.Until.Equal(until) || m.exitCalls != 1 {
+		t.Fatalf("trace cooldown: %v, calls %d", err, m.exitCalls)
 	}
 }

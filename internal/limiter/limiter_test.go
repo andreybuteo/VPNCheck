@@ -3,6 +3,8 @@ package limiter
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -350,4 +352,60 @@ func TestCorruptStateStartsClean(t *testing.T) {
 	if err := l.StartRun(); err != nil {
 		t.Fatalf("corrupt limiter state must not block: %v", err)
 	}
+}
+
+func TestQueuedProbeHonoursRefusal(t *testing.T) {
+	l, _ := newLimiter(t, t.TempDir())
+	held, err := l.Acquire(context.Background(), "a.example", "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, resume := make(chan struct{}), make(chan struct{})
+	l.SetSleep(func(_ context.Context, _ time.Duration) error {
+		close(waiting)
+		<-resume
+		return nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		release, err := l.Acquire(context.Background(), "a.example", "g2")
+		if release != nil {
+			release()
+		}
+		result <- err
+	}()
+	<-waiting
+	l.Report("a.example", &model.ProbeResult{HTTP: &model.HTTPResult{Status: 429, Captcha: true}})
+	held()
+	close(resume)
+	var denied *Allowance
+	if err := <-result; !errors.As(err, &denied) || denied.Code != "rate_limited_429" {
+		t.Fatalf("queued request: %v", err)
+	}
+	l.EndRun()
+	if l.Allowance("a.example").OK {
+		t.Fatal("429 with challenge must persist")
+	}
+}
+
+func TestFailedQuotaWriteDoesNotClaimSlot(t *testing.T) {
+	dir := t.TempDir()
+	l, _ := newLimiter(t, dir)
+	path := filepath.Join(dir, fileName)
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if l.StartRun() == nil || l.StartSpeed("s.example") == nil || l.SaveError() == nil {
+		t.Fatal("unrecorded reservation accepted")
+	}
+	if l.RunActive() || l.Speed().Active || l.Speed().Used24h != 0 {
+		t.Fatal("failed reservation consumed quota")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.StartSpeed("s.example"); err != nil || l.SaveError() != nil {
+		t.Fatal("could not recover after write failure")
+	}
+	l.EndSpeed()
 }

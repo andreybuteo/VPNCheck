@@ -191,9 +191,12 @@ func (m *HTTPMeter) ExitIP(ctx context.Context) (string, string, error) {
 		return "", "", err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode != http.StatusOK {
-		return "", "", i18n.Errorf("страница определения IP ответила HTTP %d", resp.StatusCode)
+	if refusal := m.check(Server{Host: req.URL.Hostname()}, resp, http.StatusOK); refusal != nil {
+		return "", "", refusal
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", "", err
 	}
 	ip, loc := parseTraceIP(string(body))
 	if ip == "" {
@@ -217,12 +220,13 @@ func (m *HTTPMeter) newReq(ctx context.Context, method, url string, body io.Read
 }
 
 func (m *HTTPMeter) check(srv Server, resp *http.Response, ok ...int) error {
+	challenge := strings.EqualFold(resp.Header.Get("cf-mitigated"), "challenge")
 	for _, s := range ok {
-		if resp.StatusCode == s {
+		if resp.StatusCode == s && !challenge {
 			return nil
 		}
 	}
-	e := &HTTPError{Host: srv.Host, Status: resp.StatusCode, Challenge: strings.EqualFold(resp.Header.Get("cf-mitigated"), "challenge")}
+	e := &HTTPError{Host: srv.Host, Status: resp.StatusCode, Challenge: challenge}
 	if t, ok := probe.RetryAfter(resp.Header.Get("Retry-After"), m.c.Now()); ok {
 		e.Until = t
 	}
@@ -244,10 +248,19 @@ func (m *HTTPMeter) Latency(ctx context.Context, srv Server) (Latency, error) {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
+		var timingMu sync.Mutex
 		var wrote, first time.Time
 		trace := &httptrace.ClientTrace{
-			WroteRequest:         func(httptrace.WroteRequestInfo) { wrote = time.Now() },
-			GotFirstResponseByte: func() { first = time.Now() },
+			WroteRequest: func(httptrace.WroteRequestInfo) {
+				timingMu.Lock()
+				wrote = time.Now()
+				timingMu.Unlock()
+			},
+			GotFirstResponseByte: func() {
+				timingMu.Lock()
+				first = time.Now()
+				timingMu.Unlock()
+			},
 		}
 		rctx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, trace), 6*time.Second)
 		req, err := m.newReq(rctx, http.MethodGet, url, nil, 0)
@@ -260,19 +273,24 @@ func (m *HTTPMeter) Latency(ctx context.Context, srv Server) (Latency, error) {
 			cancel()
 			return out, err
 		}
+		if err := m.check(srv, resp, http.StatusOK); err != nil {
+			resp.Body.Close()
+			cancel()
+			return out, err
+		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		resp.Body.Close()
 		cancel()
-		if err := m.check(srv, resp, http.StatusOK); err != nil {
-			return out, err
-		}
 		if out.Colo == "" {
 			out.Colo = coloFromRay(resp.Header.Get("Cf-Ray"))
 		}
-		if i == 0 || wrote.IsZero() || first.IsZero() {
+		timingMu.Lock()
+		sent, received := wrote, first
+		timingMu.Unlock()
+		if i == 0 || sent.IsZero() || received.Before(sent) {
 			continue // connection set-up is not latency
 		}
-		ms := float64(first.Sub(wrote)) / float64(time.Millisecond)
+		ms := float64(received.Sub(sent)) / float64(time.Millisecond)
 		if st := serverTimingMs(resp.Header.Get("Server-Timing")); st > 0 && st < ms {
 			ms -= st
 		}
@@ -312,8 +330,7 @@ func chunkSize(n int) int64 {
 // Download runs Parallel workers that request chunks until the phase time or
 // the byte cap is reached.
 func (m *HTTPMeter) Download(ctx context.Context, srv Server, live Live) (Throughput, error) {
-	return m.transfer(ctx, srv, m.c.DownCap, live, func(rctx context.Context, n int, worker int, counter *atomic.Int64) error {
-		size := chunkSize(n)
+	return m.transfer(ctx, srv, m.c.DownCap, live, func(rctx context.Context, n, worker int, size int64, counter *atomic.Int64) error {
 		var url string
 		var req *http.Request
 		var err error
@@ -321,9 +338,6 @@ func (m *HTTPMeter) Download(ctx context.Context, srv Server, live Live) (Throug
 			url = srv.BaseURL + "/__down?bytes=" + strconv.FormatInt(size, 10)
 			req, err = m.newReq(rctx, http.MethodGet, url, nil, 0)
 		} else {
-			if size > srv.FileSize {
-				size = srv.FileSize
-			}
 			span := srv.FileSize - size
 			off := int64(0)
 			if span > 0 {
@@ -347,14 +361,17 @@ func (m *HTTPMeter) Download(ctx context.Context, srv Server, live Live) (Throug
 		}
 		buf := make([]byte, 64<<10)
 		var read int64
-		for read < size && counter.Load() < m.c.DownCap {
-			k, rerr := resp.Body.Read(buf)
+		for read < size {
+			k, rerr := resp.Body.Read(buf[:min(int64(len(buf)), size-read)])
 			if k > 0 {
 				read += int64(k)
 				counter.Add(int64(k))
 			}
 			if rerr != nil {
 				if rerr == io.EOF {
+					if read < size {
+						return io.ErrUnexpectedEOF
+					}
 					return nil
 				}
 				return rerr
@@ -373,8 +390,7 @@ func (m *HTTPMeter) Upload(ctx context.Context, srv Server, live Live) (Throughp
 	if _, err := rand.Read(block); err != nil {
 		return Throughput{}, err
 	}
-	return m.transfer(ctx, srv, m.c.UpCap, live, func(rctx context.Context, n int, _ int, counter *atomic.Int64) error {
-		size := chunkSize(n)
+	return m.transfer(ctx, srv, m.c.UpCap, live, func(rctx context.Context, _, _ int, size int64, counter *atomic.Int64) error {
 		body := &countingReader{block: block, left: size, counter: counter}
 		req, err := m.newReq(rctx, http.MethodPost, srv.BaseURL+"/__up", body, size)
 		if err != nil {
@@ -384,9 +400,12 @@ func (m *HTTPMeter) Upload(ctx context.Context, srv Server, live Live) (Throughp
 		if err != nil {
 			return err
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		resp.Body.Close()
-		return m.check(srv, resp, http.StatusOK)
+		defer resp.Body.Close()
+		if err := m.check(srv, resp, http.StatusOK); err != nil {
+			return err
+		}
+		_, err = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+		return err
 	})
 }
 
@@ -424,7 +443,7 @@ type sample struct {
 
 // transfer runs the workers, samples the byte counter every 250 ms and computes
 // the rate after the warm-up. It stops at the phase time or at the byte cap.
-func (m *HTTPMeter) transfer(ctx context.Context, srv Server, byteCap int64, live Live, do func(context.Context, int, int, *atomic.Int64) error) (Throughput, error) {
+func (m *HTTPMeter) transfer(ctx context.Context, srv Server, byteCap int64, live Live, do func(context.Context, int, int, int64, *atomic.Int64) error) (Throughput, error) {
 	var out Throughput
 	phaseCtx, cancel := context.WithTimeout(ctx, m.c.Phase)
 	defer cancel()
@@ -432,26 +451,38 @@ func (m *HTTPMeter) transfer(ctx context.Context, srv Server, byteCap int64, liv
 	start := time.Now()
 	var mu sync.Mutex
 	var firstErr error
+	remaining := byteCap
 	var wg sync.WaitGroup
 	for w := 0; w < m.c.Parallel; w++ {
 		wg.Add(1)
 		go func(worker int) {
 			defer wg.Done()
-			for n := 0; phaseCtx.Err() == nil && counter.Load() < byteCap; n++ {
-				err := do(phaseCtx, n, worker, &counter)
+			for n := 0; phaseCtx.Err() == nil; n++ {
+				mu.Lock()
+				size := min(chunkSize(n), remaining)
+				if srv.Kind == "file" {
+					size = min(size, srv.FileSize)
+				}
+				remaining -= size
+				mu.Unlock()
+				if size == 0 {
+					return
+				}
+				err := do(phaseCtx, n, worker, size, &counter)
 				if err == nil {
 					continue
 				}
 				if phaseCtx.Err() != nil {
 					return // time or cap: normal end of the phase
 				}
+				var he *HTTPError
+				isHTTP := errors.As(err, &he)
 				mu.Lock()
-				if firstErr == nil {
+				if firstErr == nil || (isHTTP && he.Stop()) {
 					firstErr = err
 				}
 				mu.Unlock()
-				var he *HTTPError
-				if errors.As(err, &he) {
+				if isHTTP {
 					cancel() // a refusal stops every worker at once
 				}
 				return
@@ -476,10 +507,7 @@ loop:
 			if live != nil {
 				live(windowMbps(samples, time.Second), b, el)
 			}
-			if b >= byteCap {
-				out.CapReached = true
-				cancel()
-			}
+			// Workers finish the final reserved request and check its response.
 		}
 	}
 	el := time.Since(start)

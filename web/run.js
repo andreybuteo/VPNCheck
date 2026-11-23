@@ -77,11 +77,11 @@ function cardsData() {
   }
   return cards;
 }
-function matchesFilter(card) {
+function matchesFilter(card, level) {
   const f = S.filter;
-  if (f === "problems" && !(card.level === "warn" || card.level === "error")) return false;
-  if (f === "ok" && card.level !== "ok") return false;
-  if (f === "unchecked" && !(card.level === "neutral" || card.level === "running")) return false;
+  if (f === "problems" && !(level === "warn" || level === "error")) return false;
+  if (f === "ok" && level !== "ok") return false;
+  if (f === "unchecked" && !(level === "neutral" || level === "running")) return false;
   const q = S.search.trim().toLowerCase();
   if (!q) return true;
   if (card.name.toLowerCase().includes(q)) return true;
@@ -198,12 +198,12 @@ export function renderCards() {
   const run = S.view && S.view.run;
   const nodes = [];
   for (const c of cards) {
-    if (!matchesFilter(c)) continue;
     // The "Russia direct" card shows the split-routing conclusion, not only reachability.
-    const split = SPLIT_GROUPS.includes(c.id) && run && !isRunning() ? verdictFor(c.id) : null;
+    const split = SPLIT_GROUPS.includes(c.id) && run && run.status !== "running" ? verdictFor(c.id) : null;
     const lvl = split ? split.level : c.level;
+    if (!matchesFilter(c, lvl)) continue;
     const problem = lvl === "warn" || lvl === "error";
-    const vd = run && !isRunning() && problem ? verdictFor(c.id) : null;
+    const vd = run && run.status !== "running" && problem ? verdictFor(c.id) : null;
     const count = (c.label.match(/^\d+\/\d+/) || [""])[0];
     let text = c.label;
     if (!run) text = tp(c.endpoints.length, "%d узел", "%d узла", "%d узлов");
@@ -273,7 +273,7 @@ export function renderDetails() {
 // The split-routing check of a group; 4.3 runs kept the Russian one in run.split.
 function splitOf(run, gid) {
   if (!SPLIT_GROUPS.includes(gid)) return null;
-  return (run.splits || []).find(x => x.group === gid) || (gid === "ru-direct" ? run.split || null : null);
+  return (run.splits || []).find(x => x?.group === gid) || (gid === "ru-direct" ? run.split || null : null);
 }
 // The flag of the country home sites go through (RU when they go direct).
 function splitFlag(sp) {
@@ -425,7 +425,7 @@ export async function saveReport(ev) {
   const answer = await balloon(ev.currentTarget, {
     title: t("Включить в отчёт внешний IP, адреса прокси и локальные адреса адаптеров?"),
     note: t("С ними отчёт подробнее для диагностики. Без них его безопаснее передавать другим."),
-    ok: t("Включить"), alt: t("Скрыть"), cancel: t("Отмена"),
+    ok: t("Включить"), alt: t("Скрыть"), focusAlt: true, cancel: t("Отмена"),
   });
   if (!answer.ok) return;
   const sensitive = !answer.alt;

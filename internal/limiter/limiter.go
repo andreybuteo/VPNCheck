@@ -62,13 +62,16 @@ type Allowance struct {
 	Until  time.Time
 }
 
+func (a *Allowance) Error() string { return a.Reason }
+
 // Limiter is safe for concurrent use.
 type Limiter struct {
-	mu    sync.Mutex
-	st    *store.Store
-	now   func() time.Time
-	sleep func(context.Context, time.Duration) error
-	state State
+	mu      sync.Mutex
+	st      *store.Store
+	now     func() time.Time
+	sleep   func(context.Context, time.Duration) error
+	state   State
+	saveErr error
 
 	// Tunables (defaults from package app); tests lower them.
 	MaxConcurrent int
@@ -146,11 +149,19 @@ func (l *Limiter) SetSleep(f func(context.Context, time.Duration) error) { l.sle
 // resize must be called after changing MaxConcurrent in tests.
 func (l *Limiter) Resize() { l.sem = make(chan struct{}, l.MaxConcurrent) }
 
-func (l *Limiter) persistLocked() {
+func (l *Limiter) persistLocked() error {
 	if l.st == nil {
-		return
+		return nil
 	}
-	_ = l.st.SaveJSON(fileName, l.state)
+	l.saveErr = l.st.SaveJSON(fileName, l.state)
+	return l.saveErr
+}
+
+// SaveError reports whether the most recent write of the quotas or blocks failed.
+func (l *Limiter) SaveError() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.saveErr
 }
 
 func (l *Limiter) pruneLocked() {
@@ -207,12 +218,15 @@ func (l *Limiter) StartRun() error {
 			return &CooldownError{Wait: until.Sub(now), Until: until}
 		}
 	}
-	t := now
-	l.state.LastRunStart = &t
+	previous := l.state.LastRunStart
+	l.state.LastRunStart = &now
+	if err := l.persistLocked(); err != nil {
+		l.state.LastRunStart = previous
+		return err
+	}
 	l.runActive = true
 	l.runBlocked = map[string]Allowance{}
 	l.groupSlot = map[string]time.Time{}
-	l.persistLocked()
 	return nil
 }
 
@@ -297,6 +311,15 @@ func (l *Limiter) allowanceLocked(host, scope string) Allowance {
 // the probe start is recorded in the hourly window and persisted. The returned
 // release function must be called when the probe finishes.
 func (l *Limiter) Acquire(ctx context.Context, host, group string) (release func(), err error) {
+	return l.AcquireScoped(ctx, host, group, "")
+}
+
+// AcquireScoped checks the block again after waiting for the previous host
+// owner, before recording or starting another request.
+func (l *Limiter) AcquireScoped(ctx context.Context, host, group, scope string) (func(), error) {
+	if a := l.AllowanceScoped(host, scope); !a.OK {
+		return nil, &a
+	}
 	host = strings.ToLower(host)
 	select {
 	case l.sem <- struct{}{}:
@@ -348,6 +371,12 @@ func (l *Limiter) Acquire(ctx context.Context, host, group string) (release func
 	}
 
 	l.mu.Lock()
+	if a := l.allowanceLocked(host, scope); !a.OK {
+		l.mu.Unlock()
+		releaseHost()
+		releaseSem()
+		return nil, &a
+	}
 	if l.HostCap > 0 {
 		l.state.HostProbes[host] = append(l.state.HostProbes[host], l.now())
 		l.persistLocked()
@@ -378,10 +407,6 @@ func (l *Limiter) ReportScoped(host, scope string, r *model.ProbeResult) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	switch {
-	case r.HTTP.Captcha:
-		l.runBlocked[key] = Allowance{Code: "run_block_captcha", Reason: i18n.T("сервер потребовал проверку (CAPTCHA); пробы этого хоста остановлены до конца запуска")}
-	case r.HTTP.Status == 403:
-		l.runBlocked[key] = Allowance{Code: "run_block_403", Reason: i18n.T("сервер ответил 403; пробы этого хоста остановлены до конца запуска")}
 	case r.HTTP.Status == 429:
 		now := l.now()
 		until := now.Add(l.DefaultBlock)
@@ -393,8 +418,11 @@ func (l *Limiter) ReportScoped(host, scope string, r *model.ProbeResult) {
 			}
 		}
 		l.state.HostBlocks[host] = Block{Until: until, Reason: reason, Status: 429}
-		l.runBlocked[key] = Allowance{Code: "rate_limited_429", Reason: reason, Until: until}
 		l.persistLocked()
+	case r.HTTP.Captcha:
+		l.runBlocked[key] = Allowance{Code: "run_block_captcha", Reason: i18n.T("сервер потребовал проверку (CAPTCHA); пробы этого хоста остановлены до конца запуска")}
+	case r.HTTP.Status == 403:
+		l.runBlocked[key] = Allowance{Code: "run_block_403", Reason: i18n.T("сервер ответил 403; пробы этого хоста остановлены до конца запуска")}
 	}
 }
 

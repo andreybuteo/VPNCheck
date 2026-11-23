@@ -2,11 +2,14 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net"
 	"regexp"
 	"strings"
 
 	"vpncheck/internal/i18n"
+	"vpncheck/internal/limiter"
 	"vpncheck/internal/model"
 )
 
@@ -37,58 +40,65 @@ var SplitProfiles = []SplitProfile{
 const SplitGroup = "ru-direct"
 
 var (
-	reYandexIP = regexp.MustCompile(`"ip":\{"v4":"([0-9.]{7,15})"`)
-	reIsVPN    = regexp.MustCompile(`"isVpn":(true|false)`)
-	reJSONIP   = regexp.MustCompile(`"(?:ip|addr)"\s*:\s*"([0-9a-fA-F:.]{3,45})"`)
-	// Yandex: the region detected by the address ("ip"), else the region shown ("name").
-	reYandexRegionIP   = regexp.MustCompile(`"clientRegion":\{[^}]*"ip":"([^"]+)"`)
-	reYandexRegionName = regexp.MustCompile(`"clientRegion":\{"name":"([^"]+)"`)
-	reJSONCountry      = regexp.MustCompile(`"country"\s*:\s*"([^"]{1,40})"`)
-	reJSONProvince     = regexp.MustCompile(`"province"\s*:\s*"([^"]{1,40})"`)
+	reYandexIP     = regexp.MustCompile(`"ip"\s*:\s*(\{[^{}]*\})`)
+	reIsVPN        = regexp.MustCompile(`"isVpn"\s*:\s*(true|false)`)
+	reYandexRegion = regexp.MustCompile(`"clientRegion"\s*:\s*(\{[^{}]*\})`)
 )
 
-// ParseSplitPage extracts the visitor's address, the VPN flag and the country
-// from the local site's answer: the Internetometer page (city -> country by the
-// built-in table), JSON with "ip"/"addr" and "country" (Bilibili in Chinese,
-// ifconfig.ir as an ISO code) or a plain-text address. Nothing is looked up
-// elsewhere; an unknown country is "".
+// ParseSplitPage reads the observed address and location from the site's own
+// response. Yandex embeds these fields in HTML. Bilibili and ifconfig.ir use JSON.
 func ParseSplitPage(body []byte) (ip string, vpn *bool, country string) {
-	s := string(body)
-	if m := reYandexIP.FindStringSubmatch(s); m != nil && net.ParseIP(m[1]) != nil {
-		ip = m[1]
-	} else if t := strings.Trim(strings.TrimSpace(s), `"`); net.ParseIP(t) != nil {
-		ip = t
-	} else if m := reJSONIP.FindStringSubmatch(s); m != nil && net.ParseIP(m[1]) != nil {
-		ip = m[1]
-	}
-	if net.ParseIP(ip).IsLoopback() {
-		ip = ""
-	}
-	if m := reIsVPN.FindStringSubmatch(s); m != nil {
-		v := m[1] == "true"
-		vpn = &v
-	}
-	switch {
-	case reYandexRegionIP.MatchString(s):
-		country = CountryOfCity(reYandexRegionIP.FindStringSubmatch(s)[1])
-	case reYandexRegionName.MatchString(s):
-		country = CountryOfCity(reYandexRegionName.FindStringSubmatch(s)[1])
-	case reJSONCountry.MatchString(s):
-		c := reJSONCountry.FindStringSubmatch(s)[1]
-		if isISOCode(c) {
-			country = strings.ToUpper(c)
-		} else {
-			prov := ""
-			if m := reJSONProvince.FindStringSubmatch(s); m != nil {
-				prov = m[1]
+	if m := reYandexIP.FindSubmatch(body); m != nil {
+		var addr struct{ V4, V6 string }
+		if json.Unmarshal(m[1], &addr) == nil {
+			ip = addr.V4
+			if net.ParseIP(ip) == nil {
+				ip = addr.V6
 			}
-			country = CountryOfZh(c, prov)
+		}
+		if m := reIsVPN.FindSubmatch(body); m != nil {
+			v := string(m[1]) == "true"
+			vpn = &v
+		}
+		if m := reYandexRegion.FindSubmatch(body); m != nil {
+			var region struct{ IP, Name string }
+			if json.Unmarshal(m[1], &region) == nil {
+				name := region.IP
+				if name == "" {
+					name = region.Name
+				}
+				country = CountryOfCity(name)
+			}
+		}
+	} else if plain := strings.Trim(strings.TrimSpace(string(body)), `"`); net.ParseIP(plain) != nil {
+		ip = plain
+	} else {
+		type location struct{ IP, Addr, Country, Province string }
+		var page struct {
+			location
+			Data *location
+		}
+		if json.Unmarshal(body, &page) == nil {
+			loc := page.location
+			if page.Data != nil {
+				loc = *page.Data
+			}
+			ip = loc.IP
+			if ip == "" {
+				ip = loc.Addr
+			}
+			if isISOCode(loc.Country) {
+				country = strings.ToUpper(loc.Country)
+			} else {
+				country = CountryOfZh(loc.Country, loc.Province)
+			}
 		}
 	}
-	if ip == "" {
-		country = ""
+	addr := net.ParseIP(ip)
+	if addr == nil || !addr.IsGlobalUnicast() || addr.IsPrivate() {
+		return "", vpn, ""
 	}
-	return ip, vpn, country
+	return addr.String(), vpn, country
 }
 
 // ClassifySplit sets s.Code from the two observed addresses. s.Home is the
@@ -113,6 +123,9 @@ func ClassifySplit(s *model.SplitCheck) {
 		s.Code = "domestic_foreign"
 	case s.DomesticVPN != nil && *s.DomesticVPN:
 		s.Code = "domestic_vpn"
+	case s.ForeignCountry == "" || (s.DomesticCountry == "" && s.DomesticVPN == nil) ||
+		(net.ParseIP(s.DomesticIP).To4() == nil) != (net.ParseIP(s.ForeignIP).To4() == nil):
+		s.Code = "unknown"
 	default:
 		s.Code = "split_ok"
 	}
@@ -147,14 +160,7 @@ func (r *Runner) splitCheck(ctx context.Context, run *model.Run, req Request, p 
 	defer func() {
 		r.mu.Lock()
 		if x := run.ExternalIP; x != nil {
-			s.ForeignIP = x.After
-			if s.ForeignIP == "" {
-				s.ForeignIP = x.Before
-			}
-			s.ForeignCountry = x.AfterCountry
-			if s.ForeignCountry == "" {
-				s.ForeignCountry = x.Country
-			}
+			s.ForeignIP, s.ForeignCountry = x.Latest()
 		}
 		if s.DomesticIP != "" && s.DomesticIP == s.ForeignIP && s.DomesticCountry == "" {
 			s.DomesticCountry = s.ForeignCountry
@@ -167,21 +173,17 @@ func (r *Runner) splitCheck(ctx context.Context, run *model.Run, req Request, p 
 		s.Error = i18n.T("проверка остановлена")
 		return
 	}
-	if a := r.d.Limiter.Allowance(p.Host); !a.OK {
-		s.Error = i18n.T("запрос пропущен: ") + a.Reason
-		return
-	}
-	release, err := r.d.Limiter.Acquire(ctx, p.Host, p.Group)
-	if err != nil {
-		s.Error = err.Error()
-		return
-	}
-	status, body, err := r.proberFor(req, nil).FetchSmall(ctx, p.URL, p.Limit)
-	release()
+	reply, body, err := r.observe(ctx, req, p.Host, p.Group, p.URL, p.Limit)
+	status := reply.Status
+	var blocked *limiter.Allowance
 	switch {
+	case errors.As(err, &blocked):
+		s.Error = i18n.T("запрос пропущен: ") + blocked.Reason
+	case ctx.Err() != nil:
+		s.Error = i18n.T("проверка остановлена")
 	case err != nil:
 		s.Error = err.Error()
-	case status == 429 || status == 403 || (status >= 300 && status < 400) || strings.Contains(string(body), "showcaptcha"):
+	case status == 429 || status == 403 || (status >= 300 && status < 400) || reply.Captcha:
 		s.Error = i18n.T("сайт ответил проверкой на робота или отказом (статус %d)", status)
 	case status != 200:
 		s.Error = i18n.T("статус %d", status)

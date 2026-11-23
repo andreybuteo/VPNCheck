@@ -86,15 +86,25 @@ export const SPLIT_GROUPS = ["ru-direct", "cn-direct", "ir-direct"];
 // The user's home-country group: by the Windows region first (ru-RU, zh-CN, fa-IR), then by language.
 function homeGroup(s) {
   const app = (S.state && S.state.app) || {};
-  const region = String(app.systemLocale || "").split("-").pop().toUpperCase();
+  let region;
+  try { region = new Intl.Locale(app.systemLocale.replaceAll("_", "-")).region; } catch {}
   const byRegion = { RU: "ru-direct", CN: "cn-direct", IR: "ir-direct" }[region];
   if (byRegion) return byRegion;
   return { ru: "ru-direct", fa: "ir-direct" }[effectiveLang(s.language, app.systemLang)] || "";
 }
+let refreshSequence = 0;
+let unsavedRevision = 0;
 export async function refreshState() {
-  S.state = await apiJSON("/api/state");
+  const sequence = ++refreshSequence;
+  const revision = settingsRevision;
+  const hadUnsaved = unsavedRevision !== 0;
+  const next = await apiJSON("/api/state");
+  if (sequence !== refreshSequence) return;
+  if (S.state && (hadUnsaved || unsavedRevision || revision !== settingsRevision)) next.settings = settings();
+  S.state = next;
   normalizeView(S.state.current);
   const s = settings();
+  // An empty or missing list means "defaults" (settings saved before 4.4 store [] for "all").
   if (!s.selectedEndpoints || s.selectedEndpoints.length === 0) {
     // "Home country direct" checks: only the user's own country is selected by default.
     const home = homeGroup(s);
@@ -102,15 +112,29 @@ export async function refreshState() {
   }
   if (!S.viewingHistory) S.view = S.state.current.run ? S.state.current : S.view;
 }
+let saveQueue = Promise.resolve();
+let settingsRevision = 0;
 export function saveSettings(immediate) {
   clearTimeout(S.saveTimer);
-  const doSave = async () => {
-    try { S.state.settings = await apiJSON("/api/settings", { method: "PUT", body: settings() }); }
+  const revision = ++settingsRevision;
+  unsavedRevision = revision;
+  const s = settings();
+  const body = JSON.stringify(s);
+  const persist = async () => {
+    try {
+      const saved = await apiJSON("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body });
+      if (revision === settingsRevision && settings() === s) Object.assign(s, saved);
+    }
     catch (e) { if (e.message !== "session_required") toast(t("Настройки не сохранены: %s", e.message), true); }
+    if (unsavedRevision === revision) unsavedRevision = 0;
     renderHeader();
   };
-  if (immediate) return doSave();
-  S.saveTimer = setTimeout(doSave, 350);
+  const enqueue = () => {
+    saveQueue = saveQueue.then(persist, persist);
+    return saveQueue;
+  };
+  if (immediate) return enqueue();
+  S.saveTimer = setTimeout(enqueue, 350);
 }
 
 // ---------- toast and banners ----------
@@ -118,9 +142,10 @@ export function saveSettings(immediate) {
 // Replaces the browser's confirm(): the page's own look, Enter = OK, Esc or a
 // click outside = cancel, focus returns to the button. Positioned over the page
 // in viewport pixels, so nothing underneath moves.
+let dismissBalloon;
 export function balloon(anchor, o) {
   return new Promise((resolve) => {
-    document.querySelector(".balloon")?.remove();
+    dismissBalloon?.();
     const cb = o.check ? el("input", { type: "checkbox" }) : null;
     const okBtn = el("button", { type: "button", class: "btn btn-small " + (o.danger ? "btn-danger" : "btn-primary") }, o.ok || "OK");
     const altBtn = o.alt ? el("button", { type: "button", class: "btn btn-small" }, o.alt) : null;
@@ -142,6 +167,7 @@ export function balloon(anchor, o) {
     box.style.top = (above ? r.top - 10 - box.offsetHeight : r.bottom + 10) + "px";
     box.querySelector(".b-arrow").style.left = (r.left + r.width / 2 - left - 7) + "px";
     const done = (ok, alt) => {
+      dismissBalloon = null;
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("mousedown", onOut, true);
       box.remove();
@@ -150,7 +176,7 @@ export function balloon(anchor, o) {
     };
     const onKey = (e) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
-      else if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); done(true); }
+      else if (e.key === "Enter" && box.contains(e.target) && e.target.tagName !== "BUTTON") { e.preventDefault(); done(true); }
     };
     const onOut = (e) => { if (!box.contains(e.target) && e.target !== anchor) done(false); };
     okBtn.addEventListener("click", () => done(true));
@@ -158,7 +184,8 @@ export function balloon(anchor, o) {
     if (altBtn) altBtn.addEventListener("click", () => done(true, true));
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("mousedown", onOut, true);
-    okBtn.focus();
+    dismissBalloon = () => done(false);
+    (o.focusAlt && altBtn ? altBtn : okBtn).focus();
   });
 }
 

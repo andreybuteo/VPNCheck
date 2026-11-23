@@ -108,7 +108,7 @@ type Settings struct {
 	IPLogOff bool `json:"ipLogOff"`
 	// Language is the interface language code; "" = follow the browser/Windows.
 	Language string `json:"language"`
-	// SelectedEndpoints lists endpoint IDs chosen for the next run; empty = all enabled.
+	// SelectedEndpoints lists endpoint IDs chosen for the next run; empty = defaults (the user's own "home country direct" group only).
 	SelectedEndpoints []string `json:"selectedEndpoints"`
 	// StabilityEndpoints lists up to 5 endpoint IDs for stability mode.
 	StabilityEndpoints []string `json:"stabilityEndpoints"`
@@ -340,7 +340,7 @@ type Run struct {
 	Split *SplitCheck `json:"split,omitempty"`
 }
 
-// SplitCheck compares the address a Russian site sees with the address a
+// SplitCheck compares the address a local site sees with the address a
 // foreign reference node sees through the same route. It only observes: the
 // program never changes routes, proxies or the VPN client's rules.
 type SplitCheck struct {
@@ -350,8 +350,8 @@ type SplitCheck struct {
 	SourceURL   string `json:"sourceUrl"`
 	DomesticIP  string `json:"domesticIp,omitempty"`
 	DomesticVPN *bool  `json:"domesticVpn,omitempty"` // the source's own "this is a VPN/hosting" flag
-	// DomesticCountry is the country of DomesticIP (RIPEstat geolocation, or the
-	// Cloudflare country when both addresses are the same).
+	// DomesticCountry is the country reported by the local site (RIPEstat in 4.3), or the
+	// Cloudflare country when both addresses are the same.
 	DomesticCountry string `json:"domesticCountry,omitempty"`
 	ForeignIP       string `json:"foreignIp,omitempty"`
 	ForeignCountry  string `json:"foreignCountry,omitempty"`
@@ -383,7 +383,7 @@ type RunSummary struct {
 // SplitFor returns the split-routing check of a group, also from 4.3 runs.
 func (r *Run) SplitFor(group string) *SplitCheck {
 	for _, s := range r.Splits {
-		if s.Group == group {
+		if s != nil && s.Group == group {
 			return s
 		}
 	}
@@ -414,18 +414,23 @@ func (s RunSummary) withExit(x *ExternalIP) RunSummary {
 	if x == nil {
 		return s
 	}
-	s.ExitIP = x.After
-	s.ExitCountry = x.AfterCountry
-	if s.ExitIP == "" {
-		s.ExitIP = x.Before
-	}
-	if s.ExitCountry == "" {
-		s.ExitCountry = x.Country
-	}
+	s.ExitIP, s.ExitCountry = x.Latest()
 	if x.Changed && x.Before != "" {
 		s.ExitFrom = x.Before
 	}
 	return s
+}
+
+// Latest returns the last observed address and its matching country.
+// Older runs sometimes recorded only the first observation's country.
+func (x *ExternalIP) Latest() (string, string) {
+	if x.After == "" {
+		return x.Before, x.Country
+	}
+	if x.AfterCountry == "" && x.Before == x.After {
+		return x.After, x.Country
+	}
+	return x.After, x.AfterCountry
 }
 
 // Ms converts a duration to a millisecond pointer with 0.1 ms precision.

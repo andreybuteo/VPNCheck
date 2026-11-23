@@ -53,8 +53,11 @@ func main() {
 	}
 	// Go literals
 	for _, dir := range []string{"internal", "cmd"} {
-		_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		if err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
 			f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.ParseComments)
@@ -65,7 +68,7 @@ func main() {
 			// fixtures), not interface text.
 			for _, cg := range f.Comments {
 				for _, c := range cg.List {
-					if strings.HasPrefix(c.Text, "//i18nkeys:skip") {
+					if isSkipDirective(c.Text) {
 						return nil
 					}
 				}
@@ -79,13 +82,16 @@ func main() {
 				return true
 			})
 			return nil
-		})
+		}); err != nil {
+			fail("%s: %v", dir, err)
+		}
 	}
 	// built-in registry
 	var reg struct {
 		Endpoints []struct{ Group, Label, Note string } `json:"endpoints"`
 	}
-	if data, err := os.ReadFile("internal/registry/default.json"); err == nil {
+	{
+		data := mustRead("internal/registry/default.json")
 		if json.Unmarshal(data, &reg) != nil {
 			fail("default.json is not valid JSON")
 		}
@@ -106,9 +112,12 @@ func main() {
 		}
 		return v
 	}
-	jsFiles, _ := filepath.Glob("web/*.js")
+	jsFiles, err := filepath.Glob("web/*.js")
+	if err != nil || len(jsFiles) == 0 {
+		fail("no web scripts found")
+	}
 	for _, p := range jsFiles {
-		src, _ := os.ReadFile(p)
+		src := mustRead(p)
 		for _, m := range tRe.FindAllSubmatch(src, -1) {
 			add(unq(string(m[1])))
 		}
@@ -119,7 +128,8 @@ func main() {
 		}
 	}
 	// static HTML: text between tags and translatable attributes
-	if src, err := os.ReadFile("web/index.html"); err == nil {
+	{
+		src := mustRead("web/index.html")
 		src = regexp.MustCompile(`(?s)<script.*?</script>|<style.*?</style>|<!--.*?-->`).ReplaceAll(src, nil)
 		ws := regexp.MustCompile(`\s+`)
 		for _, m := range regexp.MustCompile(`>([^<>]+)<`).FindAllSubmatch(src, -1) {
@@ -151,6 +161,19 @@ func main() {
 		fail("%v", err)
 	}
 	fmt.Printf("%s: %d keys\n", out, len(list))
+}
+
+func isSkipDirective(comment string) bool {
+	fields := strings.Fields(comment)
+	return len(fields) > 0 && fields[0] == "//i18nkeys:skip"
+}
+
+func mustRead(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fail("%s: %v", path, err)
+	}
+	return data
 }
 
 func fail(f string, a ...any) {

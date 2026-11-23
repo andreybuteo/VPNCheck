@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/url"
+	"net"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,58 +47,138 @@ func Redact(run *model.Run, o Options) *model.Run {
 	}
 	cp.Splits = nil
 	for _, x := range run.Splits {
+		if x == nil {
+			cp.Splits = append(cp.Splits, nil)
+			continue
+		}
 		sp := *x
 		cp.Splits = append(cp.Splits, &sp)
 	}
 	if o.IncludeSensitive {
 		return &cp
 	}
+	mask := i18n.T(hidden)
+	// Errors, verdicts and snippets sometimes repeat a URL or a proxy address.
+	values := map[string]string{}
+	var keys []string
+	add := func(old, replacement string) {
+		if old != "" && old != replacement {
+			if _, found := values[old]; !found {
+				keys = append(keys, old)
+			}
+			values[old] = replacement
+		}
+	}
+	add(run.Route.ProxyAddr, mask)
+	if x := run.ExternalIP; x != nil {
+		add(x.PreviousIP, mask)
+		add(x.Before, mask)
+		add(x.After, mask)
+	}
+	for _, sp := range append([]*model.SplitCheck{run.Split}, run.Splits...) {
+		if sp != nil {
+			add(sp.DomesticIP, mask)
+			add(sp.ForeignIP, mask)
+		}
+	}
+	if run.AltRoute != nil {
+		alt := *run.AltRoute
+		add(alt.ProxyAddr, mask)
+		if alt.ProxyAddr != "" {
+			alt.ProxyAddr = mask
+		}
+		cp.AltRoute = &alt
+	}
+	for _, e := range run.Endpoints {
+		if e.Custom {
+			add(e.URL, stripQuery(e.URL))
+		}
+	}
+	for _, r := range run.Results {
+		add(r.Route.ProxyAddr, mask)
+		if r.Route.Mode == model.RouteProxy {
+			add(r.Transport.PeerAddr, mask)
+		}
+	}
+	// A shorter URL or address can be a prefix of another sensitive value.
+	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	var pairs []string
+	for _, k := range keys {
+		pairs = append(pairs, k, values[k])
+	}
+	replacer := strings.NewReplacer(pairs...)
+	clean := func(s string) string {
+		return ipLiteral.ReplaceAllStringFunc(replacer.Replace(s), func(candidate string) string {
+			addr := strings.TrimRight(candidate, ".")
+			if net.ParseIP(addr) != nil {
+				return mask + candidate[len(addr):]
+			}
+			return candidate
+		})
+	}
+	cp.Environment = redactEnvironment(cp.Environment)
+	cp.Message = clean(cp.Message)
+	cp.Verdicts = slices.Clone(run.Verdicts)
+	for i := range cp.Verdicts {
+		v := &cp.Verdicts[i]
+		v.Title, v.Explanation, v.Advice = clean(v.Title), clean(v.Explanation), clean(v.Advice)
+		v.Evidence = slices.Clone(v.Evidence)
+		for j := range v.Evidence {
+			v.Evidence[j] = clean(v.Evidence[j])
+		}
+	}
 	for _, sp := range append([]*model.SplitCheck{cp.Split}, cp.Splits...) {
 		if sp == nil {
 			continue
 		}
+		sp.Error = clean(sp.Error)
 		if sp.DomesticIP != "" {
-			sp.DomesticIP = i18n.T(hidden)
+			sp.DomesticIP = mask
 		}
 		if sp.ForeignIP != "" {
-			sp.ForeignIP = i18n.T(hidden)
+			sp.ForeignIP = mask
 		}
 	}
 	if cp.Route.ProxyAddr != "" {
-		cp.Route.ProxyAddr = i18n.T(hidden)
+		cp.Route.ProxyAddr = mask
 	}
 	if cp.SystemProxy != "" {
-		cp.SystemProxy = i18n.T(hidden)
+		cp.SystemProxy = mask
 	}
 	if cp.ExternalIP != nil {
+		cp.ExternalIP.Error = clean(cp.ExternalIP.Error)
 		if cp.ExternalIP.PreviousIP != "" {
-			cp.ExternalIP.PreviousIP = i18n.T(hidden)
+			cp.ExternalIP.PreviousIP = mask
 		}
 		if cp.ExternalIP.Before != "" {
-			cp.ExternalIP.Before = i18n.T(hidden)
+			cp.ExternalIP.Before = mask
 		}
 		if cp.ExternalIP.After != "" {
-			cp.ExternalIP.After = i18n.T(hidden)
-		}
-	}
-	for i := range cp.Endpoints {
-		if cp.Endpoints[i].Custom {
-			cp.Endpoints[i].URL = stripQuery(cp.Endpoints[i].URL)
+			cp.ExternalIP.After = mask
 		}
 	}
 	custom := map[string]bool{}
-	for _, e := range run.Endpoints {
+	for i := range cp.Endpoints {
+		e := &cp.Endpoints[i]
 		if e.Custom {
 			custom[e.ID] = true
+			e.URL = stripQuery(e.URL)
 		}
 	}
 	for i := range cp.Results {
 		r := &cp.Results[i]
+		r.Transport.ErrorText = clean(r.Transport.ErrorText)
+		r.Outcome.Label, r.Outcome.Detail = clean(r.Outcome.Label), clean(r.Outcome.Detail)
+		if r.HTTP != nil {
+			h := *r.HTTP
+			h.BodySnippet, h.BodyError, h.Location = clean(h.BodySnippet), clean(h.BodyError), clean(h.Location)
+			r.HTTP = &h
+		}
 		if r.Route.ProxyAddr != "" {
-			r.Route.ProxyAddr = i18n.T(hidden)
+			r.Route.ProxyAddr = mask
 		}
 		if r.Route.Mode == model.RouteProxy && r.Transport.PeerAddr != "" {
-			r.Transport.PeerAddr = i18n.T(hidden)
+			r.Transport.PeerAddr = mask
 		}
 		if custom[r.EndpointID] {
 			r.URL = stripQuery(r.URL)
@@ -105,17 +187,14 @@ func Redact(run *model.Run, o Options) *model.Run {
 	return &cp
 }
 
+// Match candidates in server-supplied text, then validate with net.ParseIP.
+var ipLiteral = regexp.MustCompile(`(?:[0-9a-fA-F]*:){2,}[0-9a-fA-F:.]*|(?:[0-9]{1,3}\.){3}[0-9]{1,3}`)
+
 func stripQuery(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		return raw[:i] + "?…"
 	}
-	if u.RawQuery == "" && u.Fragment == "" {
-		return raw
-	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	return u.String() + "?…"
+	return raw
 }
 
 // JSONDocument is the versioned export envelope.
@@ -181,7 +260,7 @@ func ExportCSV(run *model.Run, o Options) []byte {
 		h := p.HTTP
 		row := []string{
 			r.ID, r.ProfileName, r.StartedAt.UTC().Format(time.RFC3339), status, string(r.Mode), string(r.Route.Mode), proxy, string(r.IPFamily),
-			ep.Group, ep.Label, p.Host, string(p.Kind), p.URL, strconv.Itoa(p.Attempt), p.StartedAt.UTC().Format(time.RFC3339),
+			i18n.T(ep.Group), i18n.T(ep.Label), p.Host, string(p.Kind), p.URL, strconv.Itoa(p.Attempt), p.StartedAt.UTC().Format(time.RFC3339),
 			p.Outcome.Label, string(p.Outcome.Level), p.Outcome.Detail,
 			num(p.Timings.DNSMs), num(p.Timings.TCPMs), num(p.Timings.ProxyMs), num(p.Timings.TLSMs), num(p.Timings.TLSReadyMs), num(p.Timings.TTFBMs), num(p.Timings.TotalMs),
 			httpInt(h), httpStr(h, func(x *model.HTTPResult) string { return x.Proto }), httpStr(h, func(x *model.HTTPResult) string { return x.Location }),
@@ -266,8 +345,14 @@ func Summary(run *model.Run, o Options) string {
 	}
 	fmt.Fprintf(&b, i18n.T("Маршрут: %s, семейство IP: %s\n"), route, r.IPFamily)
 	c := r.Counts
+	limitedOrSkipped := c.Skipped
+	for _, result := range r.Results {
+		if !result.Skipped && result.HTTP != nil && result.HTTP.Status == 429 {
+			limitedOrSkipped++
+		}
+	}
 	fmt.Fprintf(&b, i18n.T("Проверено узлов: %d из %d; TLS подтверждён: %d/%d; HTTP-ответ по профилю: %d/%d; ошибок: %d; ограничений/пропусков: %d\n"),
-		c.Probed, c.Planned, c.TLSOK, c.Probed, c.HTTPMatch, c.HTTPSTotal, c.Errors, c.Limited+c.Skipped)
+		c.Probed, c.Planned, c.TLSOK, c.Probed, c.HTTPMatch, c.HTTPSTotal, c.Errors, limitedOrSkipped)
 	if r.MedianTLSReady != nil {
 		fmt.Fprintf(&b, i18n.T("Медиана времени до готовности TLS: %.0f мс\n"), *r.MedianTLSReady)
 	}
@@ -291,7 +376,7 @@ func Summary(run *model.Run, o Options) string {
 	}
 	b.WriteString(i18n.T("\nПо группам:\n"))
 	for _, g := range groupSummaries(r) {
-		fmt.Fprintf(&b, "  %-22s %s", g.Group, g.Label)
+		fmt.Fprintf(&b, "  %-22s %s", i18n.T(g.Group), g.Label)
 		if g.MedianMs != nil {
 			fmt.Fprintf(&b, i18n.T(" (медиана TLS готов %.0f мс)"), *g.MedianMs)
 		}
@@ -305,7 +390,7 @@ func Summary(run *model.Run, o Options) string {
 	for _, p := range latestPerEndpoint(r) {
 		if p.Outcome.Level == model.LevelError || p.Outcome.Level == model.LevelWarn {
 			ep := epByID[p.EndpointID]
-			problems = append(problems, fmt.Sprintf("  %s / %s (%s): %s", ep.Group, ep.Label, p.Host, p.Outcome.Label))
+			problems = append(problems, fmt.Sprintf("  %s / %s (%s): %s", i18n.T(ep.Group), i18n.T(ep.Label), p.Host, p.Outcome.Label))
 		}
 	}
 	if len(problems) > 0 {
@@ -545,13 +630,11 @@ type DiagnosticDocument struct {
 // Diagnostic builds the report for one run. env is the passport at export time
 // when the run did not capture one.
 func Diagnostic(run *model.Run, env json.RawMessage, o Options) ([]byte, error) {
-	r := Redact(run, o)
-	if len(r.Environment) == 0 {
-		r.Environment = env
+	source := *run
+	if len(source.Environment) == 0 {
+		source.Environment = env
 	}
-	if !o.IncludeSensitive {
-		r.Environment = redactEnvironment(r.Environment)
-	}
+	r := Redact(&source, o)
 	verdicts := r.Verdicts
 	if verdicts == nil {
 		verdicts = []model.Verdict{}
@@ -595,34 +678,58 @@ func Diagnostic(run *model.Run, env json.RawMessage, o Options) ([]byte, error) 
 	return json.MarshalIndent(doc, "", "  ")
 }
 
-// redactEnvironment hides local addresses of adapters in the passport.
+// redactEnvironment preserves the passport structure, including optional
+// fields in older histories. Both JSON export formats use this copy.
 func redactEnvironment(raw json.RawMessage) json.RawMessage {
-	if len(raw) == 0 {
-		return raw
+	var passport map[string]any
+	if len(raw) == 0 || json.Unmarshal(raw, &passport) != nil {
+		return nil
 	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return raw
+	mask := i18n.T(hidden)
+	hide := func(m map[string]any, key string) {
+		if v, _ := m[key].(string); v != "" {
+			m[key] = mask
+		}
 	}
-	if ads, ok := m["adapters"].([]any); ok {
-		for _, a := range ads {
-			if am, ok := a.(map[string]any); ok {
-				for _, k := range []string{"ipv4", "ipv6"} {
-					if list, ok := am[k].([]any); ok && len(list) > 0 {
-						am[k] = []string{hidden}
-					}
-				}
+	object := func(v any) map[string]any { m, _ := v.(map[string]any); return m }
+	list := func(v any) []any { a, _ := v.([]any); return a }
+	for _, adapter := range list(passport["adapters"]) {
+		a := object(adapter)
+		for _, key := range []string{"ipv4", "ipv6", "dns", "gateway"} {
+			if len(list(a[key])) > 0 {
+				a[key] = []string{mask}
 			}
 		}
 	}
-	if dr, ok := m["defaultRoute"].(map[string]any); ok {
-		if _, has := dr["nextHop"]; has {
-			dr["nextHop"] = i18n.T(hidden)
+	hide(object(passport["defaultRoute"]), "nextHop")
+	for _, l := range list(passport["localProxyListeners"]) {
+		hide(object(l), "addr")
+	}
+	for _, client := range list(passport["vpnClients"]) {
+		for _, l := range list(object(client)["listening"]) {
+			hide(object(l), "addr")
 		}
 	}
-	out, err := json.Marshal(m)
-	if err != nil {
-		return raw
+	p := object(passport["proxies"])
+	if pac, _ := p["pac"].(string); pac != "" {
+		notes := list(p["notes"])
+		for i, n := range notes {
+			if s, ok := n.(string); ok {
+				notes[i] = strings.ReplaceAll(s, pac, mask)
+			}
+		}
 	}
+	hide(p, "server")
+	hide(p, "pac")
+	for key := range object(p["env"]) {
+		hide(object(p["env"]), key)
+	}
+	hide(object(p["suggested"]), "proxyAddr")
+	v := object(passport["verdict"])
+	if v["mode"] == "proxy" {
+		hide(v, "text")
+	}
+	hide(object(v["suggestedRoute"]), "proxyAddr")
+	out, _ := json.Marshal(passport)
 	return out
 }

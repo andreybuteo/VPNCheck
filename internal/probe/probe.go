@@ -5,6 +5,7 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -248,7 +249,24 @@ func (p *Prober) probeHTTPS(ctx context.Context, start time.Time, ep model.Endpo
 			if err != nil {
 				return nil, err
 			}
-			return p.dial(dctx, h, port, info)
+			// net/http can return on request cancellation while its dial goroutine is
+			// still running. Publish finished timings only after the dial is done.
+			local := dialInfo{start: start}
+			dialer := *p
+			dialer.o.OnStage = func(stage model.Stage) {
+				mu.Lock()
+				p.notify(info, stage)
+				mu.Unlock()
+			}
+			dialCtx, cancelDial := context.WithCancel(dctx)
+			stop := context.AfterFunc(ctx, cancelDial)
+			defer cancelDial()
+			defer stop()
+			conn, err := dialer.dial(dialCtx, h, port, &local)
+			mu.Lock()
+			*info = local
+			mu.Unlock()
+			return conn, err
 		},
 		TLSClientConfig:        p.tlsConfig(host),
 		ForceAttemptHTTP2:      true,
@@ -379,10 +397,10 @@ func (p *Prober) probeHTTPS(ctx context.Context, start time.Time, ep model.Endpo
 // FetchSmall performs one GET through the configured route and returns the
 // status and at most limit bytes of the body. It exists for the optional
 // external-IP feature only: same guard, deadlines, no redirects, no retries.
-func (p *Prober) FetchSmall(ctx context.Context, rawURL string, limit int64) (int, []byte, error) {
+func (p *Prober) FetchSmall(ctx context.Context, rawURL string, limit int64) (model.HTTPResult, []byte, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
-		return 0, nil, errors.New(i18n.T("некорректный URL"))
+		return model.HTTPResult{}, nil, errors.New(i18n.T("некорректный URL"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.o.Timeout)
 	defer cancel()
@@ -407,7 +425,7 @@ func (p *Prober) FetchSmall(ctx context.Context, rawURL string, limit int64) (in
 	defer transport.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return 0, nil, err
+		return model.HTTPResult{}, nil, err
 	}
 	req.Header.Set("User-Agent", p.o.UserAgent)
 	req.Header.Set("Accept", "text/plain, application/json;q=0.9, */*;q=0.1")
@@ -415,9 +433,13 @@ func (p *Prober) FetchSmall(ctx context.Context, rawURL string, limit int64) (in
 	resp, err := client.Do(req)
 	if err != nil {
 		_, text := classifyErr(err)
-		return 0, nil, errors.New(text)
+		return model.HTTPResult{}, nil, errors.New(text)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
-	return resp.StatusCode, body, nil
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	reply := model.HTTPResult{Status: resp.StatusCode, Captcha: detectCaptcha(resp.StatusCode, resp.Header, body) || bytes.Contains(body, []byte("showcaptcha"))}
+	if reset, ok := rateLimitReset(resp.Header, time.Now()); ok {
+		reply.RateLimitReset = reset.UTC().Format(time.RFC3339)
+	}
+	return reply, body, err
 }

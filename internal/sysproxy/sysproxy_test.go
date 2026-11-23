@@ -25,6 +25,12 @@ func TestParseWinINET(t *testing.T) {
 }
 
 func TestParseEnvProxy(t *testing.T) {
+	for _, raw := range []string{"user:secret@proxy.example:8181", "http://user:secret@%zz"} {
+		clean, creds, route := parseEnvProxy(raw)
+		if !creds || route != nil || contains(clean, "secret") || contains(safeSetting(raw), "secret") {
+			t.Fatal("unsupported credentials retained")
+		}
+	}
 	clean, creds, rc := parseEnvProxy("http://user:secret@10.0.0.1:3128")
 	if creds != true || clean == "" || rc != nil || contains(clean, "secret") {
 		t.Fatalf("creds: clean=%q creds=%v rc=%+v", clean, creds, rc)

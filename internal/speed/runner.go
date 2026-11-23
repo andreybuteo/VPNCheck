@@ -3,8 +3,11 @@ package speed
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"math"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,7 +115,7 @@ func NewRunner(d Deps) *Runner {
 		d.Now = time.Now
 	}
 	if d.Logger == nil {
-		d.Logger = log.New(nopWriter{}, "", 0)
+		d.Logger = log.New(io.Discard, "", 0)
 	}
 	r := &Runner{d: d}
 	if d.Store != nil {
@@ -123,10 +126,6 @@ func NewRunner(d Deps) *Runner {
 	}
 	return r
 }
-
-type nopWriter struct{}
-
-func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // Start validates the request, claims the limiter slot and runs in background.
 func (r *Runner) Start(req Request) (Progress, error) {
@@ -199,24 +198,27 @@ func (r *Runner) History() []Result {
 }
 
 // Delete removes one stored result.
-func (r *Runner) Delete(id string) bool {
+func (r *Runner) Delete(id string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i, h := range r.history {
 		if h.ID == id {
-			r.history = append(r.history[:i], r.history[i+1:]...)
-			r.saveLocked()
-			return true
+			next := slices.Delete(slices.Clone(r.history), i, i+1)
+			if err := r.saveLocked(next); err != nil {
+				return false, err
+			}
+			r.history = next
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
-func (r *Runner) saveLocked() {
+func (r *Runner) saveLocked(results []Result) error {
 	if r.d.Store == nil {
-		return
+		return nil
 	}
-	_ = r.d.Store.SaveJSON(historyFile, historyDoc{SchemaVersion: model.SchemaVersion, Results: r.history})
+	return r.d.Store.SaveJSON(historyFile, historyDoc{SchemaVersion: model.SchemaVersion, Results: results})
 }
 
 func (r *Runner) update(f func(p *Progress)) {
@@ -230,9 +232,14 @@ func (r *Runner) update(f func(p *Progress)) {
 func f64(v float64) *float64 { return &v }
 
 func (r *Runner) execute(ctx context.Context, srv Server, req Request) {
-	defer r.d.Limiter.EndSpeed()
 	m := r.d.NewMeter(req.Route)
-	defer m.Close()
+	defer func() {
+		m.Close()
+		r.mu.Lock()
+		r.d.Limiter.EndSpeed()
+		close(r.done)
+		r.mu.Unlock()
+	}()
 
 	var stopErr error // a refusal or cancellation that ends the test
 	var msgs []string
@@ -280,7 +287,7 @@ func (r *Runner) execute(ctx context.Context, srv Server, req Request) {
 	}
 
 	if req.RecordIP {
-		if ip, loc, err := m.ExitIP(ctx); err == nil {
+		if ip, loc, err := r.observeExit(ctx, m); err == nil {
 			r.update(func(p *Progress) { p.ExitIP, p.ExitCountry = ip, loc })
 		} else if ctx.Err() == nil {
 			msgs = append(msgs, i18n.T("внешний IP не определён: ")+err.Error())
@@ -341,29 +348,39 @@ func (r *Runner) execute(ctx context.Context, srv Server, req Request) {
 	default:
 		p.Status = "completed"
 	}
-	p.Message = joinMsgs(msgs)
+	p.Message = strings.Join(msgs, " ")
 	res := p.Result
 	r.history = append([]Result{res}, r.history...)
 	if len(r.history) > app.SpeedHistoryLimit {
 		r.history = r.history[:app.SpeedHistoryLimit]
 	}
-	r.saveLocked()
+	if err := r.saveLocked(r.history); err != nil {
+		res.Message += i18n.T(" Не удалось сохранить запуск в историю: ") + err.Error()
+		r.history[0] = res
+		r.d.Logger.Print(res.Message)
+	}
 	r.cur = nil
 	r.cancel = nil
-	done := r.done
 	r.mu.Unlock()
 	r.d.Logger.Printf("speed %s %s: %s", res.ID, res.ServerID, res.Status)
 	r.d.Publish("speed.finished", map[string]any{"result": res})
-	close(done)
 }
 
-func joinMsgs(m []string) string {
-	out := ""
-	for i, s := range m {
-		if i > 0 {
-			out += " "
-		}
-		out += s
+// The IP observer and the speed server are distinct hosts. Honour and record
+// the observer's cooldown without charging a refusal to the transfer server.
+func (r *Runner) observeExit(ctx context.Context, m Meter) (string, string, error) {
+	host := runner.ExternalIPProvider.Host
+	if a := r.d.Limiter.Allowance(host); !a.OK {
+		return "", "", &a
 	}
-	return out
+	ip, loc, err := m.ExitIP(ctx)
+	var refusal *HTTPError
+	if errors.As(err, &refusal) && refusal.Status == 429 {
+		h := model.HTTPResult{Status: refusal.Status}
+		if !refusal.Until.IsZero() {
+			h.RateLimitReset = refusal.Until.UTC().Format(time.RFC3339)
+		}
+		r.d.Limiter.Report(host, &model.ProbeResult{HTTP: &h})
+	}
+	return ip, loc, err
 }

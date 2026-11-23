@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -28,7 +29,7 @@ import (
 // Prober is the engine dependency (probe.Prober in production).
 type Prober interface {
 	Probe(ctx context.Context, ep model.Endpoint) model.ProbeResult
-	FetchSmall(ctx context.Context, url string, limit int64) (int, []byte, error)
+	FetchSmall(ctx context.Context, url string, limit int64) (model.HTTPResult, []byte, error)
 }
 
 // ExternalIPProvider is the documented public-IP source (see docs/REGISTRY.md).
@@ -119,7 +120,7 @@ func New(d Deps) *Runner {
 		d.Publish = func(string, any) {}
 	}
 	if d.Logger == nil {
-		d.Logger = log.New(discard{}, "", 0)
+		d.Logger = log.New(io.Discard, "", 0)
 	}
 	if d.StabilityInterval <= 0 {
 		d.StabilityInterval = app.StabilityInterval
@@ -132,10 +133,6 @@ func New(d Deps) *Runner {
 	}
 	return &Runner{d: d, active: map[string]*ActiveProbe{}}
 }
-
-type discard struct{}
-
-func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
 // ValidateRoute checks a route configuration.
 func ValidateRoute(rc model.RouteConfig) error {
@@ -255,7 +252,7 @@ func (r *Runner) Start(req Request) (model.RunSummary, error) {
 	r.cancel = cancel
 	r.done = make(chan struct{})
 	sum := run.Summary()
-	r.d.Publish("run.started", map[string]any{"run": sum, "progress": r.prog})
+	r.d.Publish("run.started", map[string]any{"run": sum, "progress": r.progressLocked()})
 	go r.execute(ctx, run, eps, req)
 	return sum, nil
 }
@@ -350,16 +347,15 @@ func (r *Runner) Wait() {
 func (r *Runner) Snapshot() (*model.Run, Progress) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	p := r.prog
-	p.Active = make([]ActiveProbe, 0, len(r.active))
-	for _, a := range r.active {
-		p.Active = append(p.Active, *a)
-	}
-	p.Pending = append([]string(nil), r.prog.Pending...)
+	p := r.progressLocked()
 	if r.run == nil {
 		return nil, p
 	}
 	cp := *r.run
+	if cp.ExternalIP != nil {
+		x := *cp.ExternalIP
+		cp.ExternalIP = &x
+	}
 	cp.Results = append(make([]model.ProbeResult, 0, len(r.run.Results)), r.run.Results...)
 	cp.Endpoints = append(make([]model.Endpoint, 0, len(r.run.Endpoints)), r.run.Endpoints...)
 	return &cp, p
@@ -483,24 +479,22 @@ func (r *Runner) doProbe(ctx context.Context, run *model.Run, req Request, ep mo
 	if run.Mode == model.ModeDiag {
 		scope = string(req.Route.Mode) + req.Route.ProxyAddr
 	}
-	if a := r.d.Limiter.AllowanceScoped(ep.Host, scope); !a.OK {
-		res := base
-		res.Skipped = true
-		res.SkipReason = a.Reason
-		label := i18n.T("Пропущено: ") + a.Reason
-		if !a.Until.IsZero() {
-			label += i18n.T(" (до ") + a.Until.Local().Format("15:04") + ")"
-		}
-		res.Outcome = classify.Skipped(a.Code, label)
-		r.record(run, ep, res)
-		return time.Now()
-	}
-	release, err := r.d.Limiter.Acquire(ctx, ep.Host, ep.GroupID)
+	release, err := r.d.Limiter.AcquireScoped(ctx, ep.Host, ep.GroupID, scope)
 	if err != nil {
 		res := base
 		res.Skipped = true
-		res.SkipReason = i18n.T("отменено в очереди")
-		res.Outcome = classify.Cancelled()
+		var a *limiter.Allowance
+		if errors.As(err, &a) {
+			res.SkipReason = a.Reason
+			label := i18n.T("Пропущено: ") + a.Reason
+			if !a.Until.IsZero() {
+				label += i18n.T(" (до ") + a.Until.Local().Format("15:04") + ")"
+			}
+			res.Outcome = classify.Skipped(a.Code, label)
+		} else {
+			res.SkipReason = i18n.T("отменено в очереди")
+			res.Outcome = classify.Cancelled()
+		}
 		r.record(run, ep, res)
 		return time.Now()
 	}
@@ -516,10 +510,10 @@ func (r *Runner) doProbe(ctx context.Context, run *model.Run, req Request, ep mo
 		r.mu.Unlock()
 	})
 	res := prober.Probe(ctx, ep)
-	release()
 	res.Attempt = attempt
 	res.ProfileVersion = registry.ProfileVersion
 	r.d.Limiter.ReportScoped(ep.Host, scope, &res)
+	release()
 	res.Outcome = classify.Probe(&res, ep, r.th)
 	r.mu.Lock()
 	delete(r.active, key)
@@ -542,6 +536,10 @@ func (r *Runner) removePending(id string) {
 func (r *Runner) progress() Progress {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.progressLocked()
+}
+
+func (r *Runner) progressLocked() Progress {
 	p := r.prog
 	p.Active = make([]ActiveProbe, 0, len(r.active))
 	for _, a := range r.active {
@@ -573,8 +571,8 @@ func (r *Runner) record(run *model.Run, ep model.Endpoint, res model.ProbeResult
 }
 
 func (r *Runner) finish(ctx context.Context, run *model.Run) {
-	classify.Summarize(run)
 	r.mu.Lock()
+	classify.Summarize(run)
 	dctx := diag.Context{PrimaryRoute: run.Route, AltRoute: run.AltRoute, EnvMode: r.envMode, SplitTunnel: r.splitTunnel}
 	r.compareAnthropicIP(run)
 	if run.ExternalIP != nil {
@@ -636,23 +634,18 @@ func (r *Runner) externalIP(ctx context.Context, run *model.Run, req Request, be
 		}
 		r.mu.Unlock()
 	}
-	if a := r.d.Limiter.Allowance(ExternalIPProvider.Host); !a.OK {
-		setErr(i18n.T("запрос внешнего IP пропущен: ") + a.Reason)
+	reply, body, err := r.observe(ctx, req, ExternalIPProvider.Host, ExternalIPProvider.Group, ExternalIPProvider.URL, 4096)
+	var blocked *limiter.Allowance
+	if errors.As(err, &blocked) {
+		setErr(i18n.T("запрос внешнего IP пропущен: ") + blocked.Reason)
 		return
 	}
-	release, err := r.d.Limiter.Acquire(ctx, ExternalIPProvider.Host, ExternalIPProvider.Group)
-	if err != nil {
-		return
-	}
-	prober := r.proberFor(req, nil)
-	status, body, err := prober.FetchSmall(ctx, ExternalIPProvider.URL, 4096)
-	release()
 	if err != nil {
 		setErr(i18n.T("внешний IP не получен: ") + err.Error())
 		return
 	}
-	if status != 200 {
-		setErr(i18n.T("внешний IP не получен: статус %d", status))
+	if reply.Status != 200 || reply.Captcha {
+		setErr(i18n.T("внешний IP не получен: статус %d", reply.Status))
 		return
 	}
 	ip, loc := parseTrace(string(body))
@@ -672,8 +665,9 @@ func (r *Runner) externalIP(ctx context.Context, run *model.Run, req Request, be
 		}
 		x.Changed = x.Before != "" && x.Before != x.After
 	}
+	observation := *x
 	r.mu.Unlock()
-	r.d.Publish("externalip", map[string]any{"externalIp": x, "phase": map[bool]string{true: "before", false: "after"}[before]})
+	r.d.Publish("externalip", map[string]any{"externalIp": observation, "phase": map[bool]string{true: "before", false: "after"}[before]})
 }
 
 // ParseTrace reads ip= and loc= from a Cloudflare /cdn-cgi/trace answer.
@@ -688,14 +682,30 @@ func parseTrace(s string) (ip, loc string) {
 		}
 		switch k {
 		case "ip":
-			if net.ParseIP(v) != nil {
-				ip = v
+			if addr := net.ParseIP(v); addr != nil {
+				ip = addr.String()
 			}
 		case "loc":
-			if len(v) <= 3 {
+			if isISOCode(v) {
 				loc = strings.ToUpper(v)
 			}
 		}
 	}
 	return ip, loc
+}
+
+// observe applies the same host reservation and refusal feedback to IP requests as to probes.
+func (r *Runner) observe(ctx context.Context, req Request, host, group, url string, limit int64) (model.HTTPResult, []byte, error) {
+	scope := ""
+	if req.Mode == model.ModeDiag {
+		scope = string(req.Route.Mode) + req.Route.ProxyAddr
+	}
+	release, err := r.d.Limiter.AcquireScoped(ctx, host, group, scope)
+	if err != nil {
+		return model.HTTPResult{}, nil, err
+	}
+	defer release()
+	reply, body, err := r.proberFor(req, nil).FetchSmall(ctx, url, limit)
+	r.d.Limiter.ReportScoped(host, scope, &model.ProbeResult{HTTP: &reply})
+	return reply, body, err
 }

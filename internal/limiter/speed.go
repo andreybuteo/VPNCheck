@@ -67,11 +67,15 @@ func (l *Limiter) StartSpeed(host string) error {
 	if l.SpeedDailyCap > 0 && len(l.state.SpeedStarts) >= l.SpeedDailyCap {
 		return &DailyCapError{Cap: l.SpeedDailyCap, Until: l.state.SpeedStarts[0].Add(24 * time.Hour)}
 	}
-	t := now
-	l.state.LastSpeedStart = &t
-	l.state.SpeedStarts = append(l.state.SpeedStarts, t)
+	previous := l.state.LastSpeedStart
+	l.state.LastSpeedStart = &now
+	l.state.SpeedStarts = append(l.state.SpeedStarts, now)
+	if err := l.persistLocked(); err != nil {
+		l.state.LastSpeedStart = previous
+		l.state.SpeedStarts = l.state.SpeedStarts[:len(l.state.SpeedStarts)-1]
+		return err
+	}
 	l.speedActive = true
-	l.persistLocked()
 	return nil
 }
 

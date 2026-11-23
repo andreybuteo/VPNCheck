@@ -41,6 +41,8 @@ func TestCountryFromPage(t *testing.T) {
 		{`{"code":0,"data":{"addr":"198.51.100.9","country":"中国","province":"香港"}}`, "198.51.100.9", "HK"},
 		{`{"code":0,"data":{"addr":"198.51.100.9","country":"芬兰","province":"新地区"}}`, "198.51.100.9", "FI"},
 		{"{\n  \"ip\": \"198.51.100.10\",\n  \"country\": \"IR\"\n}", "198.51.100.10", "IR"},
+		{`{"ip": {"v6":"2001:0db8:0:0::1","v4":null}, "clientRegion": {"ip":"Минская область"}}`, "2001:db8::1", ""},
+		{`{"ip":"192.0.2.4","country":"\u4e2d\u56fd"}`, "192.0.2.4", "CN"},
 		{`no address here`, "", ""},
 	}
 	for _, c := range cases {
@@ -66,6 +68,8 @@ func TestClassifySplit(t *testing.T) {
 		{model.SplitCheck{ForeignIP: "203.0.113.7", ForeignCountry: "DE"}, "unknown"},
 		{model.SplitCheck{DomesticIP: "192.0.2.10", DomesticCountry: "RU", ForeignIP: "203.0.113.7", ForeignCountry: "FI", DomesticVPN: &no}, "split_ok"},
 		{model.SplitCheck{DomesticIP: "198.51.100.9", DomesticCountry: "NL", ForeignIP: "203.0.113.7", ForeignCountry: "FI", DomesticVPN: &no}, "domestic_foreign"},
+		{model.SplitCheck{DomesticIP: "192.0.2.10", ForeignIP: "2001:db8::10", DomesticCountry: "RU", ForeignCountry: "FI"}, "unknown"},
+		{model.SplitCheck{DomesticIP: "192.0.2.10", ForeignIP: "203.0.113.7", ForeignCountry: "FI"}, "unknown"},
 		// Other home countries: China and Iran.
 		{model.SplitCheck{Home: "CN", DomesticIP: "192.0.2.20", DomesticCountry: "CN", ForeignIP: "203.0.113.7", ForeignCountry: "JP"}, "split_ok"},
 		{model.SplitCheck{Home: "CN", DomesticIP: "192.0.2.20", DomesticCountry: "RU", ForeignIP: "203.0.113.7", ForeignCountry: "JP"}, "domestic_foreign"},

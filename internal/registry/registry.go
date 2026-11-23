@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -80,8 +81,7 @@ func Load(st *store.Store) (*Registry, LoadInfo) {
 	info.LoadInfo = li
 	if err == nil && li.Found && !li.Corrupt {
 		if verr := r.validateAll(doc.Endpoints); verr == nil {
-			r.eps = doc.Endpoints
-			r.mergeNewDefaults()
+			r.eps = mergeNewDefaults(doc.Endpoints)
 			return r, info
 		} else {
 			info.Invalid = verr.Error()
@@ -93,16 +93,17 @@ func Load(st *store.Store) (*Registry, LoadInfo) {
 
 // mergeNewDefaults appends built-in endpoints that a newer version added and
 // the user's file does not know about yet (they keep their default state).
-func (r *Registry) mergeNewDefaults() {
+func mergeNewDefaults(eps []model.Endpoint) []model.Endpoint {
 	have := map[string]bool{}
-	for _, e := range r.eps {
+	for _, e := range eps {
 		have[e.ID] = true
 	}
 	for _, d := range Defaults() {
 		if !have[d.ID] {
-			r.eps = append(r.eps, d)
+			eps = append(eps, d)
 		}
 	}
+	return eps
 }
 
 // List returns a copy of all endpoints in profile order.
@@ -162,8 +163,9 @@ func (r *Registry) SetEnabled(id string, enabled bool) error {
 	defer r.mu.Unlock()
 	for i := range r.eps {
 		if r.eps[i].ID == id {
-			r.eps[i].Enabled = enabled
-			return r.saveLocked()
+			next := slices.Clone(r.eps)
+			next[i].Enabled = enabled
+			return r.saveLocked(next)
 		}
 	}
 	return errors.New(i18n.T("контрольная точка не найдена"))
@@ -199,8 +201,7 @@ func (r *Registry) Upsert(ep model.Endpoint) error {
 	if err := r.validateAll(next); err != nil {
 		return err
 	}
-	r.eps = next
-	return r.saveLocked()
+	return r.saveLocked(next)
 }
 
 // Delete removes a custom endpoint.
@@ -222,16 +223,14 @@ func (r *Registry) Delete(id string) error {
 	if !found {
 		return errors.New(i18n.T("контрольная точка не найдена"))
 	}
-	r.eps = next
-	return r.saveLocked()
+	return r.saveLocked(next)
 }
 
 // Reset restores the embedded profile.
 func (r *Registry) Reset() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.eps = Defaults()
-	return r.saveLocked()
+	return r.saveLocked(Defaults())
 }
 
 // Import validates a complete document and replaces the list only if every
@@ -245,6 +244,9 @@ func (r *Registry) Import(data []byte) error {
 	var doc Document
 	if err := dec.Decode(&doc); err != nil {
 		return i18n.Errorf("некорректный JSON: %s", shortErr(err))
+	}
+	if len(bytes.TrimSpace(data[dec.InputOffset():])) != 0 {
+		return errors.New(i18n.T("Ожидался один объект JSON."))
 	}
 	if doc.SchemaVersion != model.SchemaVersion {
 		return i18n.Errorf("неподдерживаемая версия схемы %d (ожидается %d)", doc.SchemaVersion, model.SchemaVersion)
@@ -272,29 +274,28 @@ func (r *Registry) Import(data []byte) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.eps = eps
-	r.mergeNewDefaults()
-	return r.saveLocked()
+	return r.saveLocked(mergeNewDefaults(eps))
 }
 
 // Export serialises the current list.
 func (r *Registry) Export() ([]byte, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return json.MarshalIndent(r.docLocked(), "", "  ")
+	return json.MarshalIndent(document(r.eps), "", "  ")
 }
 
-func (r *Registry) docLocked() Document {
-	eps := make([]model.Endpoint, len(r.eps))
-	copy(eps, r.eps)
+func document(eps []model.Endpoint) Document {
 	return Document{SchemaVersion: model.SchemaVersion, ProfileVersion: ProfileVersion, Endpoints: eps}
 }
 
-func (r *Registry) saveLocked() error {
-	if r.st == nil {
-		return nil
+func (r *Registry) saveLocked(next []model.Endpoint) error {
+	if r.st != nil {
+		if err := r.st.SaveJSON(fileName, document(next)); err != nil {
+			return err
+		}
 	}
-	return r.st.SaveJSON(fileName, r.docLocked())
+	r.eps = next
+	return nil
 }
 
 func normalize(e model.Endpoint) model.Endpoint {

@@ -33,8 +33,15 @@ var ruCities = strings.Fields(`
 Ханты-Мансийск Горно-Алтайск Биробиджан Нарьян-Мар Зеленоград Ногинск Реутов Видное
 `)
 
-// ruRegionWords mark a Russian region name ("Московская область", "Пермский край").
-var ruRegionWords = []string{"область", "край", "автономный округ", "Россия"}
+// Russian oblast names. The same administrative suffix is used outside Russia.
+var ruOblasts = strings.Fields(`
+Амурская Архангельская Астраханская Белгородская Брянская Владимирская Волгоградская Вологодская
+Воронежская Ивановская Иркутская Калининградская Калужская Кемеровская Кировская Костромская
+Курганская Курская Ленинградская Липецкая Магаданская Московская Мурманская Нижегородская
+Новгородская Новосибирская Омская Оренбургская Орловская Пензенская Псковская Ростовская
+Рязанская Самарская Саратовская Сахалинская Свердловская Смоленская Тамбовская Тверская
+Томская Тульская Тюменская Ульяновская Челябинская Ярославская
+`)
 
 // foreignCities are cities and countries Yandex may name for a foreign exit.
 var foreignCities = map[string]string{
@@ -69,8 +76,11 @@ var zhCountries = map[string]string{
 	"印度尼西亚": "ID", "中国香港": "HK", "香港": "HK", "中国澳门": "MO", "澳门": "MO", "中国台湾": "TW", "台湾": "TW",
 }
 
-var ruCitySet = func() map[string]bool {
+var ruPlaces = func() map[string]bool {
 	m := map[string]bool{}
+	for _, region := range ruOblasts {
+		m[region+" область"] = true
+	}
 	for _, c := range ruCities {
 		m[strings.ReplaceAll(c, "_", " ")] = true
 	}
@@ -83,16 +93,18 @@ func CountryOfCity(name string) string {
 	if name == "" {
 		return ""
 	}
-	if ruCitySet[name] {
+	if ruPlaces[name] {
 		return "RU"
 	}
 	if c, ok := foreignCities[name]; ok {
 		return c
 	}
-	for _, w := range ruRegionWords {
-		if strings.Contains(name, w) {
-			return "RU"
-		}
+	switch name {
+	case "Россия", "Еврейская автономная область", "Алтайский край", "Забайкальский край",
+		"Камчатский край", "Краснодарский край", "Красноярский край", "Пермский край", "Приморский край",
+		"Ставропольский край", "Хабаровский край", "Ханты-Мансийский автономный округ",
+		"Ненецкий автономный округ", "Чукотский автономный округ", "Ямало-Ненецкий автономный округ":
+		return "RU"
 	}
 	return ""
 }
@@ -101,7 +113,7 @@ func CountryOfCity(name string) string {
 // province is Hong Kong, Macao or Taiwan is reported as that territory.
 func CountryOfZh(country, province string) string {
 	if country == "中国" {
-		if c, ok := zhCountries[province]; ok {
+		if c := zhCountries[province]; c == "HK" || c == "MO" || c == "TW" {
 			return c
 		}
 	}
