@@ -380,7 +380,8 @@ func (r *Runner) execute(ctx context.Context, run *model.Run, eps []model.Endpoi
 			break
 		}
 	}
-	if req.RecordIP {
+	split := req.Mode == model.ModeFast && hasGroup(eps, SplitGroup)
+	if req.RecordIP || split {
 		req.ShowExternalIP = true
 	}
 	defer func() {
@@ -451,6 +452,9 @@ func (r *Runner) execute(ctx context.Context, run *model.Run, eps []model.Endpoi
 	wg.Wait()
 	if req.ShowExternalIP {
 		r.externalIP(ctx, run, req, false)
+	}
+	if split {
+		r.splitCheck(ctx, run, req)
 	}
 }
 

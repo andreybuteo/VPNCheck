@@ -7,6 +7,7 @@ package demo
 import (
 	"context"
 	"hash/fnv"
+	"strings"
 	"time"
 
 	"vpncheck/internal/i18n"
@@ -122,6 +123,16 @@ func (p *Prober) FetchSmall(ctx context.Context, url string, limit int64) (int, 
 	case <-time.After(200 * time.Millisecond):
 	case <-ctx.Done():
 		return 0, nil, ctx.Err()
+	}
+	if strings.Contains(url, "stat.ripe.net") {
+		return 200, []byte(`{"data":{"located_resources":[{"locations":[{"country":"RU","city":""}]}]},"status":"ok"}`), nil
+	}
+	if strings.Contains(url, "yandex.ru") {
+		// Split routing: direct on the system route, everything via the VPN through the proxy.
+		if p.o.Route.Mode == model.RouteProxy {
+			return 200, []byte(`<html>{"ip":{"v4":"198.51.100.24","v6":null},"isp":{"asn":[64500],"isVpn":true}}</html>`), nil
+		}
+		return 200, []byte(`<html>{"ip":{"v4":"192.0.2.10","v6":null},"isp":{"asn":[64501],"isVpn":false}}</html>`), nil
 	}
 	if p.o.Route.Mode == model.RouteProxy {
 		return 200, []byte("fl=demo\nip=198.51.100.24\nloc=NL\n"), nil

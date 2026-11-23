@@ -1,10 +1,11 @@
 // Speed test: the row of speed tiles with the flying-dot animation and the
-// still trace, the in-page confirmation balloon, the speed button, the speed
+// still trace, the speed button, the speed
 // settings and the speed history table.
 import { t, numLocale } from "./i18n.js";
 import {
   $, el, ltr, S, settings, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast,
   fmtMs, fmtTime, fmtShort, fmtMbps, fmtMB, fmtPause, routeLabel,
+  balloon,
 } from "./core.js";
 import { renderHeader } from "./header.js";
 import { renderStatus } from "./run.js";
@@ -16,49 +17,6 @@ const speedStatusName = (s) => ({ running: t("идёт"), completed: t("гото
 const speedServers = () => (S.state.speed && S.state.speed.servers) || [];
 const speedServer = () => { const id = settings().speedServer || "cloudflare"; return speedServers().find(x => x.id === id) || speedServers()[0]; };
 const speedHistory = () => (S.state.speed && S.state.speed.history) || [];
-
-// ---------- balloon: an in-page confirmation anchored to a button ----------
-// Replaces the browser's confirm(): the page's own look, Enter = OK, Esc or a
-// click outside = cancel, focus returns to the button. Positioned over the page
-// in viewport pixels, so nothing underneath moves.
-export function balloon(anchor, o) {
-  return new Promise((resolve) => {
-    document.querySelector(".balloon")?.remove();
-    const cb = o.check ? el("input", { type: "checkbox" }) : null;
-    const okBtn = el("button", { type: "button", class: "btn btn-primary btn-small" }, o.ok || "OK");
-    const cancelBtn = el("button", { type: "button", class: "btn btn-small" }, o.cancel || t("Отмена"));
-    const box = el("div", { class: "balloon", role: "dialog", "aria-modal": "false", "aria-label": o.title },
-      el("div", { class: "b-arrow" }),
-      el("div", { class: "b-title", text: o.title }),
-      o.rows ? el("dl", { class: "b-rows" }, ...o.rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })])) : null,
-      o.note ? el("div", { class: "b-note", text: o.note }) : null,
-      el("div", { class: "b-foot" }, cb ? el("label", { class: "check" }, cb, el("span", { text: o.check })) : el("span"), el("div", { class: "grow" }), cancelBtn, okBtn));
-    document.body.append(box);
-    const r = anchor.getBoundingClientRect();
-    const w = box.offsetWidth;
-    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
-    box.style.left = left + "px";
-    box.style.top = (r.bottom + 10) + "px";
-    box.querySelector(".b-arrow").style.left = (r.left + r.width / 2 - left - 7) + "px";
-    const done = (ok) => {
-      document.removeEventListener("keydown", onKey, true);
-      document.removeEventListener("mousedown", onOut, true);
-      box.remove();
-      anchor.focus();
-      resolve({ ok, checked: !!(cb && cb.checked) });
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); done(false); }
-      else if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); done(true); }
-    };
-    const onOut = (e) => { if (!box.contains(e.target) && e.target !== anchor) done(false); };
-    okBtn.addEventListener("click", () => done(true));
-    cancelBtn.addEventListener("click", () => done(false));
-    document.addEventListener("keydown", onKey, true);
-    document.addEventListener("mousedown", onOut, true);
-    okBtn.focus();
-  });
-}
 
 // ---------- past results: shown from the exit-IP strip ----------
 export function showSpeedResult(id) {
@@ -482,8 +440,8 @@ export function renderSpeedHistory() {
     el("td", { class: "num", text: fmtMbps(r.upMbps) }),
     el("td", { class: "num", text: r.latencyMs === null || r.latencyMs === undefined ? "—" : fmtMs(r.latencyMs) + (r.jitterMs ? " ±" + fmtMs(r.jitterMs) : "") }),
     el("td", { text: speedStatusName(r.status) + (r.demo ? " " + t("(демо)") : "") }),
-    el("td", { class: "actions" }, el("button", { type: "button", class: "btn-link", onclick: async () => {
-      if (!confirm(t("Удалить этот замер из истории?"))) return;
+    el("td", { class: "actions" }, el("button", { type: "button", class: "btn-link", onclick: async (ev) => {
+      if (!(await balloon(ev.currentTarget, { title: t("Удалить этот замер из истории?"), ok: t("Удалить"), danger: true })).ok) return;
       try {
         S.state.speed = await apiJSON(`/api/speed/${encodeURIComponent(r.id)}`, { method: "DELETE" });
         renderSpeed(); renderSpeedHistory(); renderHistory(); renderIPStrip(); renderStatus();

@@ -1,0 +1,219 @@
+# VPN Check: machine-readable guide for AI assistants (LLMs, coding agents).
+# Purpose: understand what the tool is, help a specific user set it up for their
+# VPN and their services, read its results and reports, and change the code safely.
+# Authoritative sources are the code and README.md; this file summarises them for v4.2.
+# Keep it in sync when settings, API, limits or verdict codes change.
+
+schema: vpncheck-ai-guide/1
+product:
+  name: VPN Check
+  version: "4.2"
+  repository: https://github.com/andreybuteo/VPNCheck
+  latest_release: https://github.com/andreybuteo/VPNCheck/releases/latest
+  license: MIT
+  platforms: { supported: [windows-10-x64, windows-11-x64], planned: [macos] }
+  one_line: >
+    Local tool that checks which services are reachable through the user's VPN or
+    proxy, explains why something does not open, measures speed and logs the exit IP.
+  answers_questions:
+    - "Is it the VPN, the route, or the service?"
+    - "Does ChatGPT/Claude/YouTube/GitHub work through this VPN server?"
+    - "Do my applications bypass the VPN (local proxy without TUN)?"
+    - "Is a site blocked by DPI, by DNS, by the service's geo-restriction, or is the server down?"
+    - "Which VPN server is faster / which exit IP am I using?"
+    - "Do Russian sites go direct while everything else goes through the VPN (split routing)?"
+  not_for:
+    - proving that a full application scenario works (video plays, a model call succeeds)
+    - load testing, monitoring, scanning, bypassing blocks
+    - packet capture or anything that needs admin rights
+
+how_it_runs:
+  binary: VPNCheck.exe   # single file, no install, no admin rights, standard library Go
+  ui: browser page served by the exe on 127.0.0.1 (random free port), opened automatically
+  single_instance: a second start opens a tab to the running instance (instance.json)
+  quit: power button in the header ("Завершить приложение"); closing the tab does NOT stop it
+  cli_flags:
+    --port: "N, port on 127.0.0.1 (0 = free port)"
+    --no-browser: "do not open the browser; URL is printed"
+    --data-dir: "PATH, data folder (default %LOCALAPPDATA%\\VPNCheck)"
+    --version: print version and exit
+    --demo: "fabricated results, NO network at all, separate data folder; for trying the UI"
+  data_folder:
+    default: "%LOCALAPPDATA%\\VPNCheck"
+    files:
+      settings.json: user settings (see settings below), no secrets
+      registry.json: endpoint registry after the first change (built-in + custom)
+      limiter.json: pauses, speed-test counters, server blocks after 429/403/challenge
+      speed.json: speed-test history (last 100) with live series
+      history/: one JSON per check run (last 100) + index.json
+      instance.json: pid, port and launch token of the running instance
+      vpncheck.log: log without cookies, tokens or response bodies
+  network_footprint:
+    on_open: none (no external requests until the user presses a button)
+    check_run: one TLS handshake or one small GET per endpoint; plus 2 tiny requests to Cloudflare cdn-cgi/trace for the exit IP (IP log, can be disabled)
+    split_check: "only if the ru-direct group is selected: one GET of https://yandex.ru/internet (~110 KB) after the probes, plus one RIPEstat country lookup of the address Yandex saw when it differs from the Cloudflare exit"
+    speed_test: Cloudflare speed endpoints or Hetzner test files; up to ~150 MB down / ~50 MB up
+
+concepts:
+  route:
+    system: "Системный маршрут / TUN: as Windows routes it (full-tunnel VPN, TUN mode, or no VPN)"
+    proxy: "Прокси: explicit local proxy of the VPN client, HTTP CONNECT or SOCKS5 without auth, e.g. 127.0.0.1:10808"
+    rule_of_thumb: >
+      If the VPN client works only as a local proxy (no TUN adapter with the default route),
+      applications without proxy settings go DIRECTLY, not through the VPN. The environment
+      passport detects this and offers "Применить маршрут" (apply route).
+  environment_passport: >
+    Collected offline: VPN client processes and their listening ports, TUN adapters, the
+    default route, split tunnelling, local proxies, Windows proxy (WinINET), environment variables.
+    Verdict modes: tun | proxy | none | client-no-proxy | unknown.
+  endpoint: "контрольная точка: one public HTTPS host on port 443, probed as tls or https"
+  group: "группа: a service (OpenAI, Anthropic, Google, ...) made of several endpoints"
+  probe_kinds:
+    tls: "DNS -> TCP 443 -> TLS handshake with certificate verification; no HTTP request"
+    https: "one GET to a small documented resource; status compared with expectedStatuses (e.g. 401 for an API without a key means 'server answered')"
+  modes:
+    fast: "Быстрая: every selected endpoint once"
+    stability: "Стабильность: up to 5 endpoints x 3 probes, 10 s apart; spread of latency"
+    diag: "Диагностика по двум маршрутам: a problem group through the selected route AND the alternative one"
+  speed_test: >
+    "Скорость" button. Separate from the check: own time, exit IP and route; the UI frames it
+    and warns if its IP/route differs from the check shown. Servers: cloudflare (latency +
+    download + upload, nearest node, city code shown), hetzner-fsn1 / hetzner-hel1 (download
+    only, fixed location). A phase ends at the byte cap (fast link) or after 8 s; both are normal.
+  exit_ip_log: "IP выхода — последние 10: exit IP of recent checks and speed tests, same IP = same colour, country flag"
+
+limits:   # deliberate; an assistant must NOT advise weakening them
+  probes: { parallel: 4, per_host: 1, pause_between_runs_s: { default: 60, min: 10, max: 1800 }, timeout_s: 10, body_kib: 64, retries: 0, redirects: 0 }
+  on_403_or_captcha: host not probed again in this run
+  on_429: host paused per Retry-After, 15 min otherwise (persisted)
+  speed_test: { on_request_only: true, phase_s: 8, connections: 4, cap_down_mb: 150, cap_up_mb: 50, pause_min: 3, per_day: 20, on_429_403_challenge: "stop at once, pause that server (Retry-After or 1 h)" }
+  user_agent: "VPNCheck/<version> (...): honest, no browser impersonation"
+
+settings:   # settings.json; changed in the UI (gear icon "Настройки"), validated by the backend
+  profileName: { type: string, max: 80, meaning: "label of the VPN profile/server, e.g. 'VPN — Germany'; stored with each run" }
+  route: { type: object, fields: { mode: "system|proxy", proxyKind: "http|socks5", proxyAddr: "host:port" } }
+  ipFamily: { type: enum, values: [auto, ipv4, ipv6], default: auto, note: "only for system route" }
+  mode: { type: enum, values: [fast, stability], default: fast }
+  slowThresholdMs: { type: int, range: [0, 60000], default: 1500, meaning: "TLS-ready time above which a success is 'slow'; 0 = off" }
+  runCooldownSec: { type: int, range: [10, 1800], default: 60 }
+  showExternalIp: { type: bool, default: false, meaning: "show exit IP in the run details" }
+  ipLogOff: { type: bool, default: false, meaning: "true = no exit-IP requests (disables the IP log)" }
+  speedServer: { type: enum, values: [cloudflare, hetzner-fsn1, hetzner-hel1], default: cloudflare }
+  speedAcknowledged: { type: bool, meaning: "user ticked 'don't ask again' in the speed confirmation" }
+  language: { type: enum, values: ["", ru, en, de, zh, fa, ar], default: "", meaning: "'' = Auto: Windows regional format, then browser, then ru" }
+  theme: { type: enum, values: [dark, light] }
+  selectedEndpoints: { type: "[]string", meaning: "endpoint ids for the next fast run; empty = all enabled" }
+  stabilityEndpoints: { type: "[]string", max: 5 }
+
+custom_endpoints:   # how to adapt the check list to a user's own services
+  where: "Настройки -> Реестр контрольных точек: 'Своя точка' form, or Import JSON"
+  import_format: { schemaVersion: 1, endpoints: "[Endpoint, ...] (same as internal/registry/default.json)" }
+  endpoint_fields:
+    id: "required; ^[a-z0-9][a-z0-9-]{0,63}$; unique"
+    groupId: "required; same pattern; endpoints with one groupId form one card"
+    group: "required; card title, <= 60 chars"
+    label: "short role, e.g. 'API', 'Web', 'CDN'"
+    host: "required; public DNS name; no wildcard; private/loopback/link-local/CGNAT/documentation addresses are rejected at connect time too"
+    kind: "tls | https"
+    url: "https only: https://<host>/path, port 443 only, no user:password, no #fragment; host must equal 'host'"
+    expectedStatuses: "https only: up to 10 codes 100-599, e.g. [200] or [401] for an API without a key"
+    headers: "https only: up to 4, allowed names Accept, Accept-Language, Anthropic-Version; never credentials"
+    enabled: bool
+    note: "free text shown in details"
+  limits: { max_endpoints: 200, import_file_max: 1 MiB, builtin_endpoints: "cannot be edited or deleted, only enabled/disabled" }
+  example:
+    schemaVersion: 1
+    endpoints:
+      - { id: corp-portal, groupId: corp, group: "Company", label: "Portal", host: portal.example.com, kind: tls, enabled: true }
+      - { id: corp-api, groupId: corp, group: "Company", label: "API health", host: api.example.com, kind: https, url: "https://api.example.com/health", expectedStatuses: [200], enabled: true, note: "public health check" }
+  choosing_endpoints_tips:
+    - prefer hosts the service itself documents for allowlists/firewalls
+    - for an API without a key, a documented 401/403 status proves "the server answered"
+    - small static resources only; never pages that require login or large downloads
+    - two or three endpoints per service (web, API, CDN) make verdicts more reliable
+
+builtin_groups: [openai, anthropic, google, gdrive, youtube, telegram, github, docker, npm, python, huggingface, microsoft, cloudflare, autodesk, ru-direct]
+
+verdicts:   # verdict.code in the UI "Диагноз" and in the JSON report; heuristics with a confidence level
+  ok: "all endpoints of the group reachable"
+  slow: "reachable but TLS-ready time above the threshold"
+  geo_block: "service refuses the exit country/IP (e.g. 403 unsupported_country) -> choose a VPN server in another country"
+  ip_reputation: "CAPTCHA/challenge for the exit IP -> another server/IP"
+  http_denied: "403 without a known geo signature -> service policy; cause not established"
+  rate_limited: "429 -> wait; the tool pauses the host itself"
+  service_error: "5xx -> the service has problems, not the VPN"
+  profile_mismatch: "unexpected status/redirect -> the reference endpoint may have changed"
+  dpi_reset: "connection reset during the TLS handshake (after SNI) -> active blocking on the path; VPN/obfuscation needed"
+  drop_timeout: "packets dropped / connect timeout -> IP blocking or broken route"
+  refused: "TCP refused"
+  dns_fail: "name does not resolve"
+  dns_spoof: "DNS returns bogus/private addresses -> resolve through the VPN or DoH"
+  tls_intercept: "certificate not trusted -> TLS interception (corporate proxy, antivirus) or wrong clock"
+  proxy_down: "local proxy not reachable -> start the VPN client or fix the port"
+  direct_blocked_proxy_ok: "fails directly, works via the proxy -> applications bypass the VPN; enable TUN or set the proxy in the application"
+  route_dependent: "results differ between the two routes"
+  not_probed: "skipped or cancelled"
+  # group ru-direct ("Россия напрямую"): compares the address Yandex Internetometer sees with the Cloudflare exit, same route
+  split_ok: "Russian sites direct, foreign exit via VPN -> nothing to change"
+  split_all_vpn: "Russian sites also via VPN (same foreign address) -> if wanted, add a direct rule in the VPN client: geosite:category-ru, geoip:ru, .ru/.рф"
+  split_all_direct: "everything direct (same Russian address) -> VPN not used on this route; foreign services see a Russian IP"
+  split_same_exit: "same address, exit country unknown"
+  split_foreign_in_ru: "addresses differ but the foreign exit is in Russia -> choose a VPN server in another country"
+  split_domestic_foreign: "addresses differ but the address Yandex sees is in another country (RIPEstat) -> Russian sites go through another foreign server"
+  split_domestic_vpn: "addresses differ but Yandex flags its address as VPN/hosting -> Russian sites go through another proxy, not direct"
+  split_unknown: "Yandex page or exit IP not obtained (bot check, error)"
+
+reading_a_report:   # "Сохранить отчёт JSON" in "Подробности запуска и отчёт"
+  start_with: verdicts            # code, explanation, evidence, advice, confidence per group
+  then: environment               # passport: verdict.mode, adapters, defaultRoute, vpnClients, localProxyListeners, proxies
+  per_probe: "run.results[]: transport (failedStage dns|tcp|proxy|tls|http, errorKind, errorText, certVerified), http (status, geoBlocked, captcha, retryAfter), timings in ms (null = not measured, e.g. DNS behind a proxy)"
+  diag_mode: "attempt 1 = run.route, attempt 2 = run.altRoute; compare the pairs"
+  built_in_help: "the report carries its own howToRead and glossary"
+  privacy: "IPs and proxy addresses are hidden unless the user exported detailed data; never ask the user to post a detailed report publicly"
+
+adaptation_recipes:   # how to tailor VPN Check to one user, step by step
+  first_run:
+    - "Connect the VPN, start VPNCheck.exe, read the yellow/blue environment line at the top."
+    - "If it offers 'Применить маршрут: прокси ...', the client is a local proxy: apply it to test what apps WITH proxy settings see; keep the system route to test apps without proxy."
+    - "Type a profile name (server/country) so runs can be compared later."
+    - "Start check (Начать проверку). Read cards: one line per service, reason for problems."
+  compare_vpn_servers: "Run a check per server with a different profile name; History -> select two runs -> Сравнить выбранные; speed tests appear in History -> Замеры скорости."
+  user_needs_specific_services: "Add them as custom endpoints (recipe above); disable irrelevant built-in groups in the registry or in 'Что проверять'."
+  apps_bypass_vpn: "Diagnosis by two routes on a problem group; verdict direct_blocked_proxy_ok means enable TUN mode in the VPN client or configure the app's proxy."
+  slow_or_metered_link: "Use speed server hetzner-* (download only) or avoid speed tests; raise the pause between runs; IP log costs ~2 tiny requests per run."
+  user_in_russia_with_split_rules: "Select the 'Россия напрямую' group (selected by default with Russian UI) and run a check on the route the apps use. The tool only observes; it never edits the VPN client's rules, so it cannot break the VPN."
+  privacy_sensitive_user: "Settings: turn off 'Журнал IP выхода' (ipLogOff=true); exports hide IPs by default."
+  language: "Header language switcher; Auto follows Windows regional format."
+  sharing_results_with_an_assistant: "Save the JSON report (without detailed data) and give it together with this guide."
+
+for_developers:
+  build: { windows: ".\\build.ps1 -Version X.Y  (vet, tests, exe, zip, SHA-256)", go: "1.27+, standard library only" }
+  checks_before_release: ["go vet ./...", "go test ./...", "go run ./tools/i18nkeys -check", "demo mode in a browser: no console errors, nothing moves during a run"]
+  versioning: "big change +1.0, other +0.1; internal/app/app.go Version + winres/winres.json; CHANGELOG.md (ru) + docs/BUILD_REPORT.md"
+  i18n: "Russian source text is the key: Go i18n.T/Errorf/Plural, JS t()/tp(); go run ./tools/i18nkeys; fill internal/i18n/locales/{en,de,zh,fa,ar}.json; fa/ar are RTL"
+  add_builtin_endpoint: "internal/registry/default.json (documented source + verifiedAt), bump profileVersion, run i18nkeys for group/label/note texts"
+  add_language: "add to i18n.Languages, create locales/<code>.json with all keys, check RTL if needed"
+  code_map:
+    cmd/vpncheck: entry point, single instance, browser
+    internal/probe: probes, proxies (CONNECT/SOCKS5), address guard use, BulkTransport for speed
+    internal/guard: blocked address ranges
+    internal/limiter: run/speed limits and persisted blocks
+    internal/runner: check runs, exit IP, split-routing check (split.go)
+    internal/speed: speed test
+    internal/classify, internal/diag: outcome labels and verdicts
+    internal/sysenv: environment passport (Windows)
+    internal/sysproxy: WinINET + env proxies
+    internal/registry: endpoints, validation
+    internal/report: JSON/CSV export and diagnostic report
+    internal/api, internal/server: local API, session, CSRF, SSE
+    internal/i18n: translations
+    web: UI modules (core, i18n, header, run, speed, ipstrip, history, drawer)
+
+must_not:   # for any assistant helping a user or editing the code
+  - weaken or bypass the limits, add retries, raise caps, or run probes/speed tests in a loop
+  - add credentials, cookies or tokens to endpoints or reports
+  - probe private/loopback/internal addresses or arbitrary ports (only public hosts on 443)
+  - present verdicts as certainty; they are heuristics with a confidence level
+  - promise that reachability means the application fully works
+  - tell the user to disable Windows protection (SmartScreen/Defender); verify the SHA-256 instead
+  - publish a detailed report (with IPs/proxy addresses) without the user's explicit consent

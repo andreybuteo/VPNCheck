@@ -7,7 +7,7 @@
   "RT_MANIFEST": {
     "#1": {
       "0409": {
-        "identity": { "name": "VPNCheck", "version": "4.2.0.0" },
+        "identity": { "name": "VPNCheck", "version": "4.3.0.0" },
         "description": "VPN Check — проверка доступности сервисов через VPN",
         "minimum-os": "win10",
         "execution-level": "as invoker",
@@ -29,18 +29,18 @@
   "RT_VERSION": {
     "#1": {
       "0000": {
-        "fixed": { "file_version": "4.2.0.0", "product_version": "4.2.0.0" },
+        "fixed": { "file_version": "4.3.0.0", "product_version": "4.3.0.0" },
         "info": {
           "0409": {
             "Comments": "Локальная проверка доступности контрольных узлов. Не гарантирует работу приложений.",
             "CompanyName": "VPN Check",
             "FileDescription": "VPN Check — проверка доступности сервисов через VPN",
-            "FileVersion": "4.2",
+            "FileVersion": "4.3",
             "InternalName": "VPNCheck",
             "LegalCopyright": "",
             "OriginalFilename": "VPNCheck.exe",
             "ProductName": "VPN Check",
-            "ProductVersion": "4.2"
+            "ProductVersion": "4.3"
           }
         }
       }

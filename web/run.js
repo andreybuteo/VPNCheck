@@ -2,7 +2,7 @@
 // details, the diagnosis fold, and the start / stop / diagnose / report actions.
 import { t, tp } from "./i18n.js";
 import {
-  $, el, ltr, icon, S, settings, registry, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast, removeBanner, download,
+  $, el, ltr, icon, S, settings, registry, isRunning, speedActive, apiJSON, saveSettings, refreshState, toast, removeBanner, download, balloon,
   fmtMs, fmtMsUnit, fmtTime, fmtShort, routeLabel, routeShort, levelText, modeName, confName, statusName, stageName, statusClass,
   LEVEL_ICON, KIND_NAME,
 } from "./core.js";
@@ -199,13 +199,16 @@ export function renderCards() {
   const nodes = [];
   for (const c of cards) {
     if (!matchesFilter(c)) continue;
-    const lvl = c.level;
+    // The "Russia direct" card shows the split-routing conclusion, not only reachability.
+    const split = c.id === "ru-direct" && run && !isRunning() ? verdictFor(c.id) : null;
+    const lvl = split ? split.level : c.level;
     const problem = lvl === "warn" || lvl === "error";
     const vd = run && !isRunning() && problem ? verdictFor(c.id) : null;
     const count = (c.label.match(/^\d+\/\d+/) || [""])[0];
     let text = c.label;
     if (!run) text = tp(c.endpoints.length, "%d узел", "%d узла", "%d узлов");
     else if (c.active.length) text = t("Сейчас: %s", c.active.map(a => `${a.host} (${stageName(a.stage || "") || a.stage})`).join(", "));
+    else if (split) text = split.title;
     else if (vd) text = (count ? count + " · " : "") + vd.title;
     else if (lvl === "ok") text = t("%s доступны", count || "");
     const lat = c.median === null ? "" : t("%s мс", fmtMs(c.median));
@@ -215,7 +218,7 @@ export function renderCards() {
       onclick: () => { S.expanded = S.expanded === c.id ? null : c.id; renderCards(); renderDetails(); },
     },
       el("div", { class: "card-title" }, icon(LEVEL_ICON[lvl] || "neutral", lvl === "running" ? "spin" : ""), el("span", { class: "card-name", text: c.name }), el("span", { class: "card-lat", text: lat })),
-      el("div", { class: "card-status", text })));
+      el("div", { class: "card-status" }, ...(split ? splitFlag(run.split) : []), text)));
   }
   if (!nodes.length && cards.length) nodes.push(el("div", { class: "hint", text: t("Ничего не найдено по текущему фильтру.") }));
   $("cards").replaceChildren(...nodes);
@@ -262,9 +265,30 @@ export function renderDetails() {
     }
   }
   const vd = verdictFor(c.id);
-  box.replaceChildren(head, ...(vd && vd.level !== "ok" ? [verdictBox(vd, vd.title)] : []),
+  const sp = c.id === "ru-direct" && run && run.split ? run.split : null;
+  box.replaceChildren(head, ...(sp ? [splitBox(sp)] : []), ...(vd && (vd.level !== "ok" || sp) ? [verdictBox(vd, vd.title)] : []),
     el("div", { class: "table-wrap" }, el("table", { class: "grid" }, thead, el("tbody", {}, ...rows))),
     el("div", { class: "hint", text: t("Значения «—» означают «не измерено». Доступность узла не гарантирует полноценную работу приложения.") + (proxyMode ? " " + t("В режиме прокси DNS и семейство IP конечного сервера не наблюдаются («не измерено через прокси»).") : "") }));
+}
+// The flag of the country Russian sites go through (RU when they go direct).
+function splitFlag(sp) {
+  const cc = sp && sp.domesticCountry;
+  if (!cc || !window.flagSVG) return [];
+  return [el("span", { class: "ip-flag card-flag", title: cc, html: window.flagSVG(cc) })];
+}
+function splitBox(sp) {
+  const row = (label, ip, cc, extra) => el("div", { class: "split-row" },
+    el("span", { class: "split-label", text: label }),
+    el("span", { class: "split-ip" },
+      cc ? el("span", { class: "ip-flag", html: window.flagSVG ? window.flagSVG(cc) : "" }) : "",
+      el("span", { class: "mono", dir: "ltr", text: ip || t("не определён") }),
+      cc ? el("span", { class: "hint", text: cc }) : "",
+      extra ? el("span", { class: "hint", text: extra }) : ""));
+  const vpnFlag = sp.domesticVpn === true ? t("Яндекс: VPN или хостинг") : sp.domesticVpn === false ? t("Яндекс: не VPN") : "";
+  return el("div", { class: "split" },
+    row(t("Российский сайт (%s) видит", t(sp.source)), sp.domesticIp, sp.domesticCountry, vpnFlag),
+    row(t("Зарубежный узел (Cloudflare) видит"), sp.foreignIp, sp.foreignCountry, ""),
+    el("div", { class: "hint", text: t("Программа только наблюдает: маршруты, прокси и правила клиента VPN она не меняет, поэтому проверка не может отключить VPN.") }));
 }
 function resultRow(ep, r, showAttempt, proxyMode, diagMode) {
   const tm = r.timings, h = r.http, tr = r.transport;
@@ -340,7 +364,7 @@ export function renderVerdicts() {
   if (run.mode === "diag" && S.diagOpenedFor !== run.id) { S.diagOpenedFor = run.id; fold.open = true; }
   const nodes = [el("div", { class: "hint", text: t("Вердикты — эвристики без захвата пакетов; у каждого указана уверенность.") })];
   const showAll = run.mode === "diag" || problems.length === 0;
-  const visible = showAll ? sorted : sorted.filter(v => v.level === "error" || v.level === "warn" || v.groupId === "anthropic");
+  const visible = showAll ? sorted : sorted.filter(v => v.level === "error" || v.level === "warn" || v.groupId === "anthropic" || v.groupId === "ru-direct");
   for (const v of visible.slice(0, 14)) {
     const card = verdictBox(v, t(v.group) + ": " + v.title);
     if (v.evidence && v.evidence.length) card.append(el("ul", {}, ...v.evidence.map(e => el("li", { text: e }))));
@@ -390,11 +414,16 @@ async function diagnose(groupId) {
     toast(e.message, true); renderHeader();
   }
 }
-export function saveReport() {
+export async function saveReport(ev) {
   const run = S.view && S.view.run;
   if (!run) return;
-  const sensitive = confirm(t("Включить в отчёт внешний IP, адреса прокси и локальные адреса адаптеров?") + "\n\n"
-    + t("ОК — включить (подробнее для диагностики).") + "\n" + t("Отмена — скрыть чувствительные данные."));
+  const answer = await balloon(ev.currentTarget, {
+    title: t("Включить в отчёт внешний IP, адреса прокси и локальные адреса адаптеров?"),
+    note: t("С ними отчёт подробнее для диагностики. Без них его безопаснее передавать другим."),
+    ok: t("Включить"), alt: t("Скрыть"), cancel: t("Отмена"),
+  });
+  if (!answer.ok) return;
+  const sensitive = !answer.alt;
   download(`/api/report/${encodeURIComponent(run.id)}/json${sensitive ? "?sensitive=1" : ""}`);
   toast(sensitive
     ? t("Отчёт сохраняется с подробными сетевыми данными. Файл можно передать администратору или загрузить в LLM для анализа.")

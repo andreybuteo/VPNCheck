@@ -73,6 +73,12 @@ func (f *fakeProber) Probe(ctx context.Context, ep model.Endpoint) model.ProbeRe
 func (f *fakeProber) FetchSmall(ctx context.Context, url string, limit int64) (int, []byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if strings.Contains(url, "stat.ripe.net") {
+		return 200, []byte(`{"data":{"located_resources":[{"locations":[{"country":"ru"}]}]}}`), nil
+	}
+	if strings.Contains(url, "yandex.ru") {
+		return 200, []byte(`<html>{"ip":{"v4":"192.0.2.10","v6":null},"isp":{"isVpn":false}}</html>`), nil
+	}
 	if f.traceIPs == nil || len(*f.traceIPs) == 0 {
 		return 500, nil, nil
 	}

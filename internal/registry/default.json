@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "profileVersion": 1,
+  "profileVersion": 2,
   "endpoints": [
     {
       "id": "openai-chatgpt",
@@ -381,6 +381,18 @@
       "source": "https://developers.cloudflare.com/fundamentals/reference/cdn-cgi-endpoint/",
       "verifiedAt": "2026-09-13",
       "note": "Диагностический текстовый ответ Cloudflare; содержит IP клиента, поэтому тело не сохраняется."
+    },
+    {
+      "id": "ru-direct-yandex",
+      "groupId": "ru-direct",
+      "group": "Россия напрямую",
+      "label": "Яндекс Интернетометр",
+      "host": "yandex.ru",
+      "kind": "tls",
+      "enabled": true,
+      "source": "https://yandex.ru/internet",
+      "verifiedAt": "2026-11-23",
+      "note": "Проверка раздельной маршрутизации: после проб программа один раз открывает страницу Интернетометра (около 110 КБ) и сравнивает адрес, который видит Яндекс, с адресом выхода по Cloudflare. Только наблюдение: маршруты и правила VPN не меняются."
     }
   ]
 }

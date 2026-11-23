@@ -1,7 +1,7 @@
 // History fold: saved runs, export links, comparison of two runs.
 import { t, tp } from "./i18n.js";
 import {
-  $, el, icon, S, api, apiJSON, normalizeView, refreshState, toast, isRunning,
+  $, el, icon, S, api, apiJSON, normalizeView, refreshState, toast, isRunning, balloon,
   fmtMs, fmtShort, modeName, statusName, LEVEL_ICON,
 } from "./core.js";
 import { renderAll } from "./app.js";
@@ -46,7 +46,7 @@ export function renderHistory() {
         el("a", { class: "btn-link", href: `/api/export/${r.id}/json${q}`, download: "" }, "JSON"),
         el("a", { class: "btn-link", href: `/api/export/${r.id}/csv${q}`, download: "" }, "CSV"),
         el("button", { type: "button", class: "btn-link", onclick: () => copySummary(r.id) }, t("Копировать итог")),
-        el("button", { type: "button", class: "btn-link", onclick: () => deleteRun(r.id) }, t("Удалить"))));
+        el("button", { type: "button", class: "btn-link", onclick: (ev) => deleteRun(r.id, ev.currentTarget) }, t("Удалить"))));
   });
   body.replaceChildren(sens, el("div", { class: "table-wrap" }, el("table", { class: "grid" }, thead, el("tbody", {}, ...rows))));
   $("btnCompare").disabled = S.compareSel.length !== 2;
@@ -68,8 +68,8 @@ async function copySummary(id) {
     toast(S.sensitiveExport ? t("Краткий итог скопирован (с IP и адресами прокси)") : t("Краткий итог скопирован (без IP и адресов прокси)"));
   } catch (e) { toast(t("Не удалось скопировать: %s", e.message), true); }
 }
-async function deleteRun(id) {
-  if (!confirm(t("Удалить этот запуск из истории?"))) return;
+async function deleteRun(id, anchor) {
+  if (!(await balloon(anchor, { title: t("Удалить этот запуск из истории?"), ok: t("Удалить"), danger: true })).ok) return;
   try {
     await apiJSON("/api/history/" + encodeURIComponent(id), { method: "DELETE" });
     await refreshState();

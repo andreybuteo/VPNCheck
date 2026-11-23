@@ -1,7 +1,7 @@
 // Settings drawer: route, check options, speed server, the endpoint registry
 // with custom endpoints, help, and quitting the application.
 import { t } from "./i18n.js";
-import { $, el, S, settings, registry, apiJSON, saveSettings, refreshState, toast, banner, disableAll, download, proxyKindName } from "./core.js";
+import { $, el, S, settings, registry, apiJSON, saveSettings, refreshState, toast, banner, disableAll, download, proxyKindName, balloon } from "./core.js";
 import { renderHeader, renderControls, updateStartButton } from "./header.js";
 import { renderCards } from "./run.js";
 import { renderSpeed, renderSpeedSettings } from "./speed.js";
@@ -70,8 +70,8 @@ function renderRegistry() {
         el("span", { text: e.label ? t(e.label) : e.host }), el("span", { class: "host mono", text: e.host }),
         el("span", { class: "kind", text: e.kind + (e.url ? " " + e.url.replace(/^https:\/\/[^/]+/, "") : "") }),
         el("span", { class: "grow" }));
-      if (e.custom) row.append(el("button", { type: "button", class: "btn-link", onclick: async () => {
-        if (!confirm(t("Удалить точку %s?", e.host))) return;
+      if (e.custom) row.append(el("button", { type: "button", class: "btn-link", onclick: async (ev) => {
+        if (!(await balloon(ev.currentTarget, { title: t("Удалить точку %s?", e.host), ok: t("Удалить"), danger: true })).ok) return;
         try {
           const r = await apiJSON(`/api/registry/${encodeURIComponent(e.id)}`, { method: "DELETE" });
           S.state.registry.endpoints = r.endpoints; renderControls(); renderRegistry(); renderCards();
@@ -94,8 +94,13 @@ export function closeDrawer() {
   $("btnSettings").focus();
 }
 
-export async function quitApp() {
-  if (!confirm(t("Завершить приложение? Backend остановится, порт освободится, эту вкладку можно будет закрыть."))) return;
+export async function quitApp(ev) {
+  const answer = await balloon(ev.currentTarget, {
+    title: t("Завершить приложение?"),
+    note: t("Программа остановится, порт освободится, эту вкладку можно будет закрыть. VPN и сеть это не затрагивает."),
+    ok: t("Завершить"), danger: true,
+  });
+  if (!answer.ok) return;
   try {
     await apiJSON("/api/quit", { method: "POST" });
     S.quitting = true;
@@ -164,8 +169,8 @@ export function wireDrawer() {
     } catch (err) { toast(err.message, true); }
     e.target.value = "";
   });
-  $("btnRegReset").addEventListener("click", async () => {
-    if (!confirm(t("Вернуть встроенный реестр? Свои точки будут удалены."))) return;
+  $("btnRegReset").addEventListener("click", async (ev) => {
+    if (!(await balloon(ev.currentTarget, { title: t("Вернуть встроенный реестр?"), note: t("Свои точки будут удалены."), ok: t("Вернуть"), danger: true })).ok) return;
     try { const r = await apiJSON("/api/registry/reset", { method: "POST" }); registryChanged(r.endpoints); }
     catch (err) { toast(err.message, true); }
   });

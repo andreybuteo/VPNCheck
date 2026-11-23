@@ -29,6 +29,11 @@ your browser and talks only to `127.0.0.1`.
   the VPN.
 - **Speed test** through the same route: latency, download and upload via Cloudflare's nearest node
   (its city code is shown), or download from Hetzner in Falkenstein or Helsinki as a fixed reference.
+- **Split-routing check** ("Russia direct" group): compares the address a Russian site (Yandex
+  Internetometer) sees with the exit seen by Cloudflare through the same route, and tells whether
+  Russian sites go direct while everything else goes through the VPN: a Russian flag when they do,
+  a red card with the country they go through when they do not. The country is looked up in
+  RIPEstat (RIPE NCC). It only observes and never changes routes or VPN rules.
 - **Exit IP log**: the last 10 checks and speed tests with exit IP, country flag and time; the same
   address always has the same colour, so changes of the exit are visible at a glance.
 - **History and export**: the last 100 runs, comparison of two runs, JSON/CSV export and a full
@@ -102,6 +107,12 @@ docs/           specification, registry of reference endpoints, test report (Rus
 - Speed figures are close to, but not the same as, speedtest.net: the server is different.
 - Windows 11 x64 is the target; the code builds on other systems, but the environment passport and
   proxy detection are Windows-only.
+
+## For AI assistants
+
+[`llms.txt`](llms.txt) and [`docs/ai-guide.yaml`](docs/ai-guide.yaml) describe the tool in a
+machine-readable form: settings, custom endpoints, verdict codes, how to read a report and how to
+adapt the tool to a particular user. Give them to an assistant together with a saved JSON report.
 
 ## License
 

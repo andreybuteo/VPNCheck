@@ -45,6 +45,7 @@
 | hf-hub | huggingface.co | tls | — | [Hub API](https://huggingface.co/docs/hub/api), [rate limits](https://huggingface.co/docs/hub/rate-limits) | |
 | ms-login | login.microsoftonline.com | https | `/common/v2.0/.well-known/openid-configuration` → 200 | [Microsoft identity platform OIDC](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc) | |
 | cloudflare-www | www.cloudflare.com | https | `/cdn-cgi/trace` → 200 | [cdn-cgi endpoint](https://developers.cloudflare.com/fundamentals/reference/cdn-cgi-endpoint/) | Ответ содержит IP клиента; тело не сохраняется |
+| ru-direct-yandex | yandex.ru | tls | — | [Яндекс Интернетометр](https://yandex.ru/internet) | Группа «Россия напрямую», см. ниже |
 
 Итого 31 точка, 29 включены по умолчанию, 2 выключены с указанием причины.
 
@@ -55,6 +56,22 @@
 ([документация](https://developers.cloudflare.com/fundamentals/reference/cdn-cgi-endpoint/)).
 ASN этот источник не отдаёт, поэтому показывается «нет данных». Запрос выполняется только при
 включённой опции, дважды за запуск (в начале и в конце), через выбранный маршрут.
+
+## Россия напрямую (проверка раздельной маршрутизации, с версии 4.3)
+
+Если выбрана группа «Россия напрямую», после проб выполняется один GET страницы
+`https://yandex.ru/internet` (около 110 КБ, читается не больше 256 КБ) через выбранный маршрут и
+ограничитель. Из встроенных в страницу данных берутся `"ip":{"v4":…}` и `"isVpn"`. Этот адрес
+сравнивается с адресом выхода по Cloudflare trace (он запрашивается автоматически). Короткий ответ
+`/internet/api/v0/ip` не используется: в проверке 2026-11-23 он вернул `"127.0.0.1"` вместо адреса.
+Ответ с проверкой на робота (3xx, 403, 429, `showcaptcha`) даёт вердикт «адрес не определён».
+
+Страны на странице Яндекса нет (только город), поэтому страна этого адреса запрашивается у RIPEstat:
+`https://stat.ripe.net/data/maxmind-geo-lite/data.json?sourceapp=vpncheck&resource=<адрес>`
+([описание](https://stat.ripe.net/docs/data-api/api-endpoints/maxmind-geo-lite)), один небольшой GET
+через тот же маршрут и только если адреса Яндекса и Cloudflare различаются (иначе страна берётся у
+Cloudflare). Это единственный запрос, в котором программа передаёт адрес наружу: RIPE NCC
+получает адрес, который видит Яндекс.
 
 ## Что не удалось подтвердить
 

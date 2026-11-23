@@ -333,6 +333,26 @@ type Run struct {
 	Environment json.RawMessage `json:"environment,omitempty"`
 	// Verdicts are per-group diagnostic conclusions.
 	Verdicts []Verdict `json:"verdicts,omitempty"`
+	// Split is the split-routing check (domestic sites direct, the rest via VPN).
+	Split *SplitCheck `json:"split,omitempty"`
+}
+
+// SplitCheck compares the address a Russian site sees with the address a
+// foreign reference node sees through the same route. It only observes: the
+// program never changes routes, proxies or the VPN client's rules.
+type SplitCheck struct {
+	Source         string `json:"source"`
+	SourceURL      string `json:"sourceUrl"`
+	DomesticIP     string `json:"domesticIp,omitempty"`
+	DomesticVPN    *bool  `json:"domesticVpn,omitempty"` // the source's own "this is a VPN/hosting" flag
+	// DomesticCountry is the country of DomesticIP (RIPEstat geolocation, or the
+	// Cloudflare country when both addresses are the same).
+	DomesticCountry string `json:"domesticCountry,omitempty"`
+	ForeignIP      string `json:"foreignIp,omitempty"`
+	ForeignCountry string `json:"foreignCountry,omitempty"`
+	// Code: split_ok | all_vpn | all_direct | same_exit | foreign_in_ru | domestic_foreign | domestic_vpn | unknown.
+	Code  string `json:"code"`
+	Error string `json:"error,omitempty"`
 }
 
 // RunSummary is the lightweight history entry.

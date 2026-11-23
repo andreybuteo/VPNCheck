@@ -1,0 +1,20 @@
+# VPN Check
+
+> Local Windows tool that checks which services (OpenAI, Anthropic, Google, YouTube, GitHub, Telegram and others, plus the user's own HTTPS hosts) are reachable through the user's VPN or proxy. It explains why something does not open (geo-restriction, DPI reset, TLS interception, traffic bypassing the VPN, DNS spoofing, rate limits), measures speed through the same route, logs the exit IP, and checks split routing (Russian sites direct, the rest via VPN). It is a single exe with no install and no admin rights; the browser interface talks only to 127.0.0.1. Interface in en, ru, de, zh, fa, ar. MIT license.
+
+The structured guide for assistants is docs/ai-guide.yaml. It covers settings with types and defaults, the custom endpoint format and its validation rules, verdict codes with advice, how to read a diagnostic report, step-by-step recipes for adapting the tool to one user, and what must not be done.
+
+## Docs
+
+- [AI guide (YAML)](docs/ai-guide.yaml): machine-readable summary: concepts, settings, endpoints, verdicts, recipes, limits
+- [README](README.md): features, install, gentle-by-design limits, languages, build
+- [README (Russian)](README.ru.md): the same in Russian
+- [Reference endpoints](docs/REGISTRY.md): built-in endpoints and their sources
+- [Built-in endpoint list](internal/registry/default.json): the import format for custom endpoints is the same
+- [Changelog](CHANGELOG.md): versions (Russian)
+
+## Optional
+
+- [Specification](docs/SPEC.md): original requirements (Russian)
+- [Build and test report](docs/BUILD_REPORT.md): what was verified and how (Russian)
+- [Releases](https://github.com/andreybuteo/VPNCheck/releases/latest): Windows zip and SHA256SUMS

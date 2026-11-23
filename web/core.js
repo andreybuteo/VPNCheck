@@ -1,6 +1,6 @@
 // Shared core: page state, DOM helpers, API access, banners and toasts,
 // formatting and the names of levels, statuses and stages.
-import { t, lang, numLocale, LANG_HEADER } from "./i18n.js";
+import { t, lang, numLocale, LANG_HEADER, effectiveLang } from "./i18n.js";
 import { renderHeader } from "./header.js";
 
 // ---------- DOM helpers ----------
@@ -86,7 +86,9 @@ export async function refreshState() {
   normalizeView(S.state.current);
   const s = settings();
   if (!s.selectedEndpoints || s.selectedEndpoints.length === 0) {
-    s.selectedEndpoints = registry().filter(e => e.enabled).map(e => e.id);
+    // The "Russia direct" check is for users in Russia: selected by default only with Russian.
+    const ru = effectiveLang(s.language, S.state.app && S.state.app.systemLang) === "ru";
+    s.selectedEndpoints = registry().filter(e => e.enabled && (ru || e.groupId !== "ru-direct")).map(e => e.id);
   }
   if (!S.viewingHistory) S.view = S.state.current.run ? S.state.current : S.view;
 }
@@ -102,6 +104,54 @@ export function saveSettings(immediate) {
 }
 
 // ---------- toast and banners ----------
+// ---------- balloon: an in-page confirmation anchored to a button ----------
+// Replaces the browser's confirm(): the page's own look, Enter = OK, Esc or a
+// click outside = cancel, focus returns to the button. Positioned over the page
+// in viewport pixels, so nothing underneath moves.
+export function balloon(anchor, o) {
+  return new Promise((resolve) => {
+    document.querySelector(".balloon")?.remove();
+    const cb = o.check ? el("input", { type: "checkbox" }) : null;
+    const okBtn = el("button", { type: "button", class: "btn btn-small " + (o.danger ? "btn-danger" : "btn-primary") }, o.ok || "OK");
+    const altBtn = o.alt ? el("button", { type: "button", class: "btn btn-small" }, o.alt) : null;
+    const cancelBtn = el("button", { type: "button", class: "btn btn-small" }, o.cancel || t("Отмена"));
+    const box = el("div", { class: "balloon", role: "dialog", "aria-modal": "false", "aria-label": o.title },
+      el("div", { class: "b-arrow" }),
+      el("div", { class: "b-title", text: o.title }),
+      o.rows ? el("dl", { class: "b-rows" }, ...o.rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })])) : null,
+      o.note ? el("div", { class: "b-note", text: o.note }) : null,
+      el("div", { class: "b-foot" }, cb ? el("label", { class: "check" }, cb, el("span", { text: o.check })) : el("span"), el("div", { class: "grow" }), cancelBtn, altBtn, okBtn));
+    document.body.append(box);
+    const r = anchor.getBoundingClientRect();
+    const w = box.offsetWidth;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    box.style.left = left + "px";
+    // Below the button; above it when there is no room (buttons near the bottom of the page or drawer).
+    const above = r.bottom + 10 + box.offsetHeight > window.innerHeight - 8 && r.top - 10 - box.offsetHeight >= 8;
+    box.classList.toggle("above", above);
+    box.style.top = (above ? r.top - 10 - box.offsetHeight : r.bottom + 10) + "px";
+    box.querySelector(".b-arrow").style.left = (r.left + r.width / 2 - left - 7) + "px";
+    const done = (ok, alt) => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("mousedown", onOut, true);
+      box.remove();
+      if (anchor.isConnected) anchor.focus();
+      resolve({ ok, alt: !!alt, checked: !!(cb && cb.checked) });
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+      else if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); done(true); }
+    };
+    const onOut = (e) => { if (!box.contains(e.target) && e.target !== anchor) done(false); };
+    okBtn.addEventListener("click", () => done(true));
+    cancelBtn.addEventListener("click", () => done(false));
+    if (altBtn) altBtn.addEventListener("click", () => done(true, true));
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("mousedown", onOut, true);
+    okBtn.focus();
+  });
+}
+
 export function toast(msg, isErr) {
   const box = $("toast");
   box.textContent = msg; box.className = "toast" + (isErr ? " err" : ""); box.hidden = false;

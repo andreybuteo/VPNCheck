@@ -352,6 +352,14 @@ details.fold > summary:focus-visible { outline: 2px solid var(--accent); outline
 .details { background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); padding: 8px calc(var(--inset) - 1px) 10px; margin-bottom: 12px; }
 .details-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .details-head h3 { margin: 0; font-size: 14px; }
+.card-status .card-flag { display: inline-block; vertical-align: -2px; margin-inline-end: 6px; }
+.card-status .card-flag svg { width: 18px; height: 12px; display: block; border-radius: 2px; }
+.split { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; align-items: center; margin: 4px 0 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
+.split-row { display: contents; }
+.split > .hint { grid-column: 1 / -1; }
+.split-label { color: var(--muted); }
+.split-ip { display: inline-flex; align-items: center; gap: 6px; }
+.split-ip .ip-flag svg { width: 20px; height: 13.3px; display: block; }
 .details .verdict { margin-bottom: 8px; }
 .table-wrap { overflow-x: auto; }
 table.grid { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -438,6 +446,7 @@ table.grid tr.explain td b { color: var(--text); }
   position: absolute; top: -8px; width: 14px; height: 14px; background: var(--panel);
   border-left: 1px solid var(--accent); border-top: 1px solid var(--accent); transform: rotate(45deg);
 }
+.balloon.above .b-arrow { top: auto; bottom: -8px; transform: rotate(225deg); }
 .balloon .b-title { font-weight: 600; font-size: 13.5px; margin-bottom: 8px; }
 .balloon .b-rows { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 8px; }
 .balloon .b-rows dt { color: var(--muted); }
