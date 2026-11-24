@@ -9,6 +9,12 @@ import {
 import { renderHeader, selectedIDs } from "./header.js";
 import { backToCurrent } from "./history.js";
 import { speedNote } from "./speed.js";
+import { staleRun, runTime, ageText, staleHint } from "./stale.js";
+
+// The shown run is finished more than 30 minutes ago: its blocks are faded.
+function runIsStale() {
+  return staleRun(S.view && S.view.run, isRunning());
+}
 
 // ---------- derived data ----------
 function latestResults(run) {
@@ -117,13 +123,18 @@ export function renderSummary() {
     tile(t("Ошибки / ограничения"), fraction(c.errors, c.limited), t("транспортные ошибки / лимиты и 429")),
     tile(t("Медиана TLS готов"), c.median === null ? "—" : [fmtMs(c.median) + " ", small(t("мс"))], t("от старта пробы до проверки сертификата")),
     runTile(run));
+  const stale = runIsStale();
+  box.classList.toggle("stale", stale);
+  box.title = stale ? staleHint(runTime(run)) : "";
 }
 function runTile(run) {
   const tl = el("div", { class: "tile tile-run" }, el("div", { class: "t-label", text: t("Запуск") }));
   if (!run) { tl.append(el("div", { class: "t-value", text: "—" }), el("div", { class: "t-sub", text: t("ещё не запускалась") })); return tl; }
   const prog = S.view.progress || {};
   const st = prog.runId === run.id ? prog.status : run.status;
-  tl.append(el("div", { class: "t-value t-status " + statusClass(st), text: statusName(st) }),
+  // An old result shows its age instead of "Finished", in grey.
+  const old = runIsStale();
+  tl.append(el("div", { class: "t-value t-status " + (old ? "st-old" : statusClass(st)), text: old ? ageText(runTime(run)) : statusName(st) }),
     el("div", { class: "t-sub" }, ltr(fmtShort(run.startedAt)), " · " + routeShort(run.route)));
   return tl;
 }
@@ -142,13 +153,15 @@ export function renderStatus() {
   const prog = S.view.progress || {};
   const st = prog.runId === run.id ? prog.status : run.status;
   const note = [];
-  if (S.viewingHistory) note.push(el("span", {}, t("Просмотр запуска от %s из истории", fmtTime(run.startedAt)) + " · ", el("button", { type: "button", class: "btn-link", onclick: backToCurrent }, t("к текущему"))));
+  if (S.viewingHistory) note.push(el("span", { class: runIsStale() ? "st old" : "" }, t("Просмотр запуска от %s из истории", fmtTime(run.startedAt)) + (runIsStale() ? " (" + ageText(runTime(run)) + ")" : "") + " · ", el("button", { type: "button", class: "btn-link", onclick: backToCurrent }, t("к текущему"))));
   if (st === "running") note.push(el("span", { class: "st" }, icon("spin", "spin"), " " + t("Идёт проверка: %d из %d", prog.done || 0, prog.total || 0)));
   const msg = run.message || prog.message;
   if (msg) note.push(el("span", { class: "st warn", text: msg }));
   const cnt = computeCounts(run, prog);
   if (st !== "running" && cnt.probed > 0 && run.results.every(r => r.skipped || !r.transport.ok && ["dns", "tcp"].includes(r.transport.failedStage)))
     note.unshift(el("span", { class: "st err", text: t("Все узлы завершились ошибкой на этапе DNS/TCP: похоже, сеть или выбранный маршрут недоступны.") }));
+  if (!S.viewingHistory && runIsStale())
+    note.push(el("span", { class: "st old", text: t("Результат проверки от %s — %s. Нажмите «Начать проверку», чтобы обновить.", fmtTime(runTime(run)), ageText(runTime(run))) }));
   if (!note.length) note.push(el("span", {}, statusName(st) + " · " + fmtTime(run.startedAt) + " · " + routeLabel(run.route)));
   $("runNote").replaceChildren(...speedLine, ...note);
   $("runSummary").textContent = statusName(st) + " · " + fmtTime(run.startedAt) + " · " + routeShort(run.route);
@@ -222,6 +235,7 @@ export function renderCards() {
   }
   if (!nodes.length && cards.length) nodes.push(el("div", { class: "hint", text: t("Ничего не найдено по текущему фильтру.") }));
   $("cards").replaceChildren(...nodes);
+  $("cards").classList.toggle("stale", runIsStale());
 }
 
 // ---------- group details ----------

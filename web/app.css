@@ -311,6 +311,15 @@ details.fold > summary:focus-visible { outline: 2px solid var(--accent); outline
 .runnote .st { color: var(--text); display: inline-flex; gap: 5px; align-items: center; }
 .runnote .st.warn { color: var(--warn); }
 .runnote .st.err { color: var(--err); }
+.runnote .st.old { color: var(--muted); }
+
+/* ---------- Old results (older than 30 minutes): faded, colour back on hover ---------- */
+.summary.stale .tile, .cards.stale .card, .speedbox.stale .sp-cell, .ipcell.stale {
+  filter: grayscale(.85); opacity: .6; transition: filter .25s, opacity .25s;
+}
+.summary.stale .tile:hover, .cards.stale .card:hover, .cards.stale .card[aria-expanded="true"],
+.speedbox.stale .sp-cell:hover, .ipcell.stale:hover { filter: none; opacity: 1; }
+.tile .t-status.st-old { color: var(--muted); }
 
 /* ---------- Service cards: name line plus a fixed two-line status ---------- */
 .cards-head { gap: 8px; margin-top: 4px; margin-bottom: 4px; }

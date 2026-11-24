@@ -10,6 +10,7 @@ import { t, tp } from "./i18n.js";
 import { $, el, ltr, S, fmtTime, fmtShort, routeLabel } from "./core.js";
 import { openHistory } from "./history.js";
 import { showSpeedResult } from "./speed.js";
+import { isStale } from "./stale.js";
 
 const IP_SLOTS = 4;
 const kindName = (k) => ({ run: t("проверка"), speed: t("скорость") })[k] || k;
@@ -65,7 +66,8 @@ export function renderIPStrip() {
     ].filter(Boolean).join("\n");
     const sub2 = [kind, e.country || "", e.from ? t("менялся") : ""].filter(Boolean).join(" · ") + other;
     const flag = el("span", { class: "ip-flag", html: window.flagSVG ? window.flagSVG(e.country) : "" });
-    const cls = `ipcell ip-c${k}` + (last ? " latest" : "") + (changed ? " changed" : "") + (clickable && isSelected(e) ? " selected" : "");
+    // The newest cell is faded when it is older than 30 minutes: it may not be the current exit.
+    const cls = `ipcell ip-c${k}` + (last ? " latest" : "") + (last && isStale(e.at) ? " stale" : "") + (changed ? " changed" : "") + (clickable && isSelected(e) ? " selected" : "");
     const attrs = { class: cls, title };
     if (clickable) {
       Object.assign(attrs, {

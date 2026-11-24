@@ -11,6 +11,7 @@ import { renderHeader } from "./header.js";
 import { renderStatus } from "./run.js";
 import { renderIPStrip } from "./ipstrip.js";
 import { renderHistory } from "./history.js";
+import { isStale, ageText } from "./stale.js";
 
 const phaseName = (p) => ({ latency: t("задержка"), download: t("скачивание"), upload: t("отдача"), done: t("готово") })[p] || p;
 const speedStatusName = (s) => ({ running: t("идёт"), completed: t("готово"), partial: t("частично"), cancelled: t("остановлен"), failed: t("не удался") })[s] || s;
@@ -109,6 +110,11 @@ export function renderSpeed() {
   const legend = speedLegend(cur, last);
   box.replaceChildren(first, down, up, lat, meta, legend);
   box.classList.toggle("running", !!cur);
+  // A speed test older than 30 minutes is faded on its own, apart from the check.
+  const when = last && (last.finishedAt || last.startedAt);
+  const stale = !cur && isStale(when);
+  box.classList.toggle("stale", stale);
+  for (const c of [first, down, up, lat, meta]) if (stale) c.title = [c.title, t("Замер %s: с тех пор скорость могла измениться. Нажмите «Скорость», чтобы замерить заново.", ageText(when))].filter(Boolean).join("\n");
 }
 
 // ---- caption over the speed row: the speed test is a separate test, with its

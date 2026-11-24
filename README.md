@@ -40,6 +40,8 @@ your browser and talks only to `127.0.0.1`.
   it tests a rule by the .ir domain, not geoip:ir.
 - **Exit IP log**: the last 10 checks and speed tests with exit IP, country flag and time; the same
   address always has the same colour, so changes of the exit are visible at a glance.
+- **Old results look old**: a check or a speed test older than 30 minutes is shown faded, with its
+  age ("19 hours ago"), so a result from yesterday is not mistaken for a fresh one.
 - **History and export**: the last 100 runs, comparison of two runs, JSON/CSV export and a full
   diagnostic JSON report meant for a human or an LLM to read.
 

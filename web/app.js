@@ -1,7 +1,7 @@
 // Entry point: start-up, language, live events, rendering and the wiring of
 // controls that are not owned by a single module.
 import { t, lang, effectiveLang, cachedLang, loadCatalog, translateDOM } from "./i18n.js";
-import { $, S, settings, apiJSON, normalizeView, refreshState, saveSettings, banner, removeBanner } from "./core.js";
+import { $, S, settings, apiJSON, normalizeView, refreshState, saveSettings, banner, removeBanner, isRunning, speedActive } from "./core.js";
 import { renderHeader, renderControls, renderEnv, renderLangSelect, applyTheme, updateStartButton } from "./header.js";
 import { renderSummary, renderStatus, renderCards, renderDetails, renderVerdicts, startRun, stopRun, saveReport } from "./run.js";
 import { renderSpeed, renderSpeedHistory, startSpeed } from "./speed.js";
@@ -65,6 +65,13 @@ async function init() {
     applyTheme();
     renderAll();
     openSSE();
+    // Results age while the page is open: once a minute refresh the ages and the
+    // faded look of results older than 30 minutes (nothing moves, no requests).
+    setInterval(() => {
+      if (S.quitting || isRunning()) return;
+      renderSummary(); renderStatus(); renderCards(); renderIPStrip();
+      if (!speedActive()) renderSpeed();
+    }, 60000);
     if (S.state.current.run) { S.view = S.state.current; renderAll(); }
     else if (S.state.history.length) {
       // Show the latest saved run offline; no network activity is triggered.

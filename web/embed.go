@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-//go:embed index.html app.css app.js core.js i18n.js header.js run.js speed.js ipstrip.js history.js drawer.js flags.js favicon.svg
+//go:embed index.html app.css app.js core.js i18n.js header.js run.js speed.js ipstrip.js history.js drawer.js flags.js stale.js favicon.svg
 var files embed.FS
 
 // FS returns the UI file system with index.html at its root.
