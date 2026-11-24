@@ -21,7 +21,7 @@ const DirName = "VPNCheck"
 // Version is overridden at build time via -ldflags "-X vpncheck/internal/app.Version=...".
 // Versioning rule: a major change adds 1.0, any other change adds 0.1
 // (see README, «Версионирование»). Keep winres/winres.json in sync.
-var Version = "5.0"
+var Version = "5.1"
 
 // Limits that the backend enforces regardless of UI state (spec §7).
 const (

@@ -44,7 +44,7 @@ func (m *SpeedMeter) Latency(ctx context.Context, srv speed.Server) (speed.Laten
 }
 
 func (m *SpeedMeter) fake(ctx context.Context, target float64, live speed.Live) (speed.Throughput, error) {
-	const phase = 4 * time.Second
+	const phase = 5 * time.Second
 	start := time.Now()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
@@ -55,7 +55,7 @@ func (m *SpeedMeter) fake(ctx context.Context, target float64, live speed.Live) 
 			return speed.Throughput{Bytes: bytes, Seconds: time.Since(start).Seconds()}, ctx.Err()
 		case <-tick.C:
 			el := time.Since(start)
-			ramp := el.Seconds() / 1.5
+			ramp := el.Seconds() / 2.5 // a gradual climb, so the heat steps 100 -> 200 -> 500 are visible
 			if ramp > 1 {
 				ramp = 1
 			}
@@ -81,12 +81,17 @@ func dip(el time.Duration) float64 {
 }
 
 func (m *SpeedMeter) Download(ctx context.Context, _ speed.Server, live speed.Live) (speed.Throughput, error) {
+	// Through the proxy the demo link is very fast (the hot, comet-like look);
+	// on the system route it is an ordinary calm one.
 	if m.proxy {
-		return m.fake(ctx, 182.6, live)
+		return m.fake(ctx, 540.2, live)
 	}
 	return m.fake(ctx, 87.4, live)
 }
 
 func (m *SpeedMeter) Upload(ctx context.Context, _ speed.Server, live speed.Live) (speed.Throughput, error) {
+	if m.proxy {
+		return m.fake(ctx, 162.4, live)
+	}
 	return m.fake(ctx, 41.9, live)
 }

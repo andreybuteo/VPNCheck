@@ -29,6 +29,8 @@ your browser and talks only to `127.0.0.1`.
   the VPN.
 - **Speed test** through the same route: latency, download and upload via Cloudflare's nearest node
   (its city code is shown), or download from Hetzner in Falkenstein or Helsinki as a fixed reference.
+  A flying dot draws the speed live; from 100 Mbit/s it warms up, from 200 it trails an orange comet
+  with sparks and a glowing plasma cap in front, from 500 it burns gold.
 - **Split-routing check** ("Russia / China / Iran direct" groups): compares the address a local
   site sees (Yandex Internetometer, Bilibili, ifconfig.ir) with the exit seen by Cloudflare through
   the same route, and tells whether local sites go direct while everything else goes through the

@@ -19,6 +19,7 @@
   --accent-2: #1f9e92;
   --accent-text: #0e1b1a;
   --ok: #3ac47d;
+  --hot-amber: #f5a623; --hot-orange: #ff7a1a; --hot-gold: #ffd24a;
   --warn: #e0a93b;
   --err: #e5484d;
   --neutral: #7c8590;
@@ -43,6 +44,7 @@
   --accent-2: #0f7d74;
   --accent-text: #ffffff;
   --ok: #1f9d55;
+  --hot-amber: #c77c00; --hot-orange: #dd5f0b; --hot-gold: #b88a00;
   --warn: #b7791f;
   --err: #cf2f34;
   --neutral: #7a838e;
@@ -251,6 +253,10 @@ details.fold > summary:focus-visible { outline: 2px solid var(--accent); outline
 .speedbox .sp-run { color: var(--accent); font-size: 18px; line-height: 1.15; }
 .speedbox .sp-num { font-variant-numeric: tabular-nums; display: inline-block; min-width: 2.6ch; }
 .speedbox .st-completed .t-value { color: var(--ok); }
+/* finished speed figures warm with the speed: fast is good news, never red */
+.speedbox .sp-cell.tier-fast .t-value { color: var(--ok); text-shadow: 0 0 7px color-mix(in srgb, var(--ok) 45%, transparent); }
+.speedbox .sp-cell.tier-hot .t-value { color: color-mix(in srgb, var(--ok) 50%, var(--hot-gold)); text-shadow: 0 0 9px color-mix(in srgb, var(--hot-gold) 40%, transparent); }
+.speedbox .sp-cell.tier-blazing .t-value { color: var(--hot-gold); text-shadow: 0 0 12px color-mix(in srgb, var(--hot-gold) 55%, transparent); }
 .speedbox .st-partial .t-value { color: var(--warn); }
 .speedbox .st-failed .t-value, .speedbox .st-cancelled .t-value { color: var(--err); }
 /* progress along the bottom edge of the first tile */

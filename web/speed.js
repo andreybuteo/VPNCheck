@@ -69,6 +69,11 @@ export function renderSpeed() {
   const up = cell(t("Отдача"), fileOnly ? "—" : valMbps(last && last.upMbps, "upload"),
     fileOnly ? t("этот сервер только для скачивания") : (inPhase("upload") ? t("сейчас · %s МБ", fmtMB(cur.liveBytes)) : (last && last.upBytes ? phaseEnd(last, "up", sp.plan) : t("отправка на сервер"))),
     inPhase("upload") ? "active" : "");
+  // Finished figures keep their heat: amber from 100 Mbit/s, glowing from 200, gold from 500.
+  for (const [cellEl, v, ph] of [[down, last && last.downMbps, "download"], [up, fileOnly ? null : last && last.upMbps, "upload"]]) {
+    const tier = !inPhase(ph) && v ? speedTier(v) : "";
+    if (tier) cellEl.classList.add(tier);
+  }
   const hasLat = last && last.latencyMs !== null && last.latencyMs !== undefined;
   const lat = cell(t("Задержка"),
     fileOnly ? "—" : (hasLat ? [fmtMs(last.latencyMs) + " ", small(t("мс"))] : (inPhase("latency") ? el("span", { class: "sp-run", text: t("замер…") }) : "—")),
@@ -228,23 +233,55 @@ function rgba(color, a) {
   const n = parseInt(m[1], 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
 }
+// ---------- heat: the faster the line, the hotter it looks ----------
+// Up to about 80 Mbit/s the dot stays calm green. From 100 it warms to amber,
+// from 200 an orange comet tail with sparks grows behind it, from 500 the
+// dot burns gold. Fast is good news, so the colours are warm, never red.
+function heatOf(v) {
+  if (!(v > 0)) return 0;
+  const h = (Math.log10(v) - Math.log10(80)) / (Math.log10(600) - Math.log10(80));
+  return Math.min(1, Math.max(0, h));
+}
+function hexRGB(c) { const n = parseInt(c.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function mix(a, b, k) {
+  if (!/^#[0-9a-f]{6}$/i.test(a) || !/^#[0-9a-f]{6}$/i.test(b)) return a;
+  const x = hexRGB(a), y = hexRGB(b);
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, "0")).join("");
+}
+function heatPalette() {
+  return { green: cssVar("--ok", "#2fbf71"), amber: cssVar("--hot-amber", "#f5a623"), orange: cssVar("--hot-orange", "#ff7a1a"), gold: cssVar("--hot-gold", "#ffd24a") };
+}
+// green -> amber (around 200) -> orange (500 and more)
+function heatColor(pal, h) { return h < 0.5 ? mix(pal.green, pal.amber, h * 2) : mix(pal.amber, pal.orange, (h - 0.5) * 2); }
+// speedTier names the class of a finished figure: fast 100+, hot 200+, blazing 500+.
+function speedTier(v) { return v >= 500 ? "tier-blazing" : v >= 200 ? "tier-hot" : v >= 100 ? "tier-fast" : ""; }
+// strokeHeat draws a line whose every segment is coloured by its own speed.
+function strokeHeat(ctx, pts, vals, pal, alphaAt, width) {
+  ctx.lineWidth = width; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (let i = 1; i < pts.length; i++) {
+    ctx.strokeStyle = rgba(heatColor(pal, heatOf(vals[i])), alphaAt(pts[i][0]));
+    ctx.beginPath(); ctx.moveTo(pts[i - 1][0], pts[i - 1][1]); ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke();
+  }
+}
+
 class Flyer {
   constructor(phase) {
     this.phase = phase;
     this.canvas = el("canvas", { class: "sp-fly", "aria-hidden": "true" });
     this.num = el("span", { class: "sp-num", text: "0" });
     this.target = 0; this.shown = 0; this.max = 100; this.scale = 100; this.trail = []; this.last = 0; this.clock = 0; this.raf = 0;
+    this.sparks = []; this.dt = 0; this.spawn = 0;
     this.label = null;
   }
   feed(v) {
     this.target = Math.max(0, v || 0);
     if (!this.raf && !reduceMotion) this.start();
-    if (reduceMotion) { this.shown = this.target; this.num.textContent = fmtMbps(this.shown); }
+    if (reduceMotion) { this.shown = this.target; this.num.textContent = fmtMbps(this.shown); this.paintNumber(); }
   }
   start() { this.last = performance.now(); const tick = (now) => { this.frame(now); this.raf = requestAnimationFrame(tick); }; this.raf = requestAnimationFrame(tick); }
   stop() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; }
   frame(now) {
-    const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.clock += dt;
+    const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now; this.clock += dt; this.dt = dt;
     this.shown += (this.target - this.shown) * (1 - Math.exp(-dt * 5));
     const peak = Math.max(this.target, this.shown, ...this.trail.map(p => p.v), 1);
     this.scale = scaleFor(peak);
@@ -252,13 +289,24 @@ class Flyer {
     if (this.label) { const text = t("шкала %d Мбит/с", this.scale); if (this.label.textContent !== text) this.label.textContent = text; }
     this.trail.push({ t: this.clock, v: this.shown });
     this.num.textContent = fmtMbps(this.shown);
+    this.paintNumber();
     this.draw();
+  }
+  // The figure glows with the speed: green glow from 100, towards gold from 200,
+  // bright gold from 500. Not amber: amber is the colour of warnings here.
+  paintNumber() {
+    const pal = heatPalette(), h = heatOf(this.shown);
+    if (h < 0.11) { this.num.style.color = ""; this.num.style.textShadow = ""; return; }
+    const c = h < 0.45 ? pal.green : mix(pal.green, pal.gold, Math.min(1, (h - 0.45) / 0.45));
+    this.num.style.color = c;
+    this.num.style.textShadow = "0 0 " + Math.round(4 + 9 * h) + "px " + rgba(c, 0.3 + 0.35 * h);
   }
   draw() {
     const cv = this.canvas; if (!cv.isConnected) return;
     const dpr = fitCanvas(cv); const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
-    const green = cssVar("--ok", "#2fbf71");
-    const speed = 34 * dpr;            // px per second the world scrolls left
+    const pal = heatPalette(), green = pal.green;
+    const h = heatOf(this.shown), hot = heatColor(pal, h);
+    const speed = (34 + 40 * h) * dpr;   // the world scrolls faster when the link is fast
     const dotX = W * 0.76, pad = 5 * dpr;
     const yOf = (v) => H - pad - (v / this.max) * (H - pad * 2);
     ctx.clearRect(0, 0, W, H);
@@ -267,31 +315,82 @@ class Flyer {
     ctx.strokeStyle = rgba(green, 0.13); ctx.lineWidth = 1 * dpr;
     const gap = 22 * dpr, off = (this.clock * speed * 1.6) % gap;
     for (let x = W - off; x > -gap; x -= gap) { ctx.beginPath(); ctx.moveTo(x, H - pad); ctx.lineTo(x - 7 * dpr, H - pad); ctx.stroke(); }
-    // trail
+    const y = yOf(this.shown);
+    // trail: the fill warms with the current speed, the line is coloured point by point
     while (this.trail.length && dotX - (this.clock - this.trail[0].t) * speed < -10) this.trail.shift();
     if (this.trail.length > 1) {
       const pts = this.trail.map(p => [dotX - (this.clock - p.t) * speed, yOf(p.v)]);
-      const fill = ctx.createLinearGradient(0, 0, 0, H); fill.addColorStop(0, rgba(green, 0.28)); fill.addColorStop(1, rgba(green, 0));
-      ctx.beginPath(); ctx.moveTo(pts[0][0], H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(pts[pts.length - 1][0], H); ctx.closePath();
+      const vals = this.trail.map(p => p.v);
+      const fill = ctx.createLinearGradient(0, 0, 0, H); fill.addColorStop(0, rgba(mix(green, pal.amber, h * 0.7), 0.28)); fill.addColorStop(1, rgba(green, 0));
+      ctx.beginPath(); ctx.moveTo(pts[0][0], H); pts.forEach(([x, py]) => ctx.lineTo(x, py)); ctx.lineTo(pts[pts.length - 1][0], H); ctx.closePath();
       ctx.fillStyle = fill; ctx.fill();
-      const fade = ctx.createLinearGradient(0, 0, dotX, 0); fade.addColorStop(0, rgba(green, 0)); fade.addColorStop(0.45, rgba(green, 0.55)); fade.addColorStop(1, rgba(green, 1));
-      ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-      ctx.strokeStyle = fade; ctx.lineWidth = 2 * dpr; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke();
+      strokeHeat(ctx, pts, vals, pal, (x) => Math.max(0, Math.min(1, x / dotX)) ** 1.4, 2 * dpr);
+      // comet tail: a glowing streak over the most recent part, longer and hotter with speed
+      if (h > 0.08) {
+        const tail = (40 + 170 * h) * dpr;
+        const recent = pts.filter(([x]) => x > dotX - tail);
+        if (recent.length > 1) {
+          ctx.save();
+          const g = ctx.createLinearGradient(dotX - tail, 0, dotX, 0);
+          g.addColorStop(0, rgba(hot, 0)); g.addColorStop(0.6, rgba(hot, 0.45 * h + 0.15)); g.addColorStop(1, rgba(h > 0.9 ? pal.gold : hot, 0.95));
+          ctx.shadowColor = hot; ctx.shadowBlur = (6 + 14 * h) * dpr;
+          ctx.beginPath(); recent.forEach(([x, py], i) => i ? ctx.lineTo(x, py) : ctx.moveTo(x, py));
+          ctx.strokeStyle = g; ctx.lineWidth = (2.5 + 4 * h) * dpr; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+          ctx.restore();
+        }
+      }
     }
-    // speed streaks just behind the dot
-    const y = yOf(this.shown);
-    for (let i = 0; i < 3; i++) {
-      const ph = (this.clock * 2.2 + i / 3) % 1;
-      ctx.strokeStyle = rgba(green, 0.35 * (1 - ph)); ctx.lineWidth = 1.2 * dpr;
-      const sx = dotX - 8 * dpr - ph * 26 * dpr, sy = y + (i - 1) * 3.5 * dpr;
-      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - 9 * dpr, sy); ctx.stroke();
+    // sparks thrown back from the dot once the link is fast (200 and more)
+    if (h > 0.4 && !reduceMotion) {
+      this.spawn += this.dt * 70 * (h - 0.4) / 0.6;
+      while (this.spawn >= 1) {
+        this.spawn -= 1;
+        this.sparks.push({ age: 0, max: 0.35 + Math.random() * 0.45, vx: 40 + Math.random() * 110, vy: (Math.random() - 0.5) * 50, y0: y, gold: Math.random() < 0.5 });
+      }
     }
-    // pulsing halo and the dot
-    const pulse = (this.clock * 1.1) % 1;
-    ctx.beginPath(); ctx.arc(dotX, y, (4 + pulse * 9) * dpr, 0, Math.PI * 2); ctx.fillStyle = rgba(green, 0.28 * (1 - pulse)); ctx.fill();
-    ctx.save(); ctx.shadowColor = green; ctx.shadowBlur = 12 * dpr;
-    ctx.beginPath(); ctx.arc(dotX, y, 3.6 * dpr, 0, Math.PI * 2); ctx.fillStyle = green; ctx.fill(); ctx.restore();
-    ctx.beginPath(); ctx.arc(dotX, y, 1.4 * dpr, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+    this.sparks = this.sparks.filter(s => (s.age += this.dt) < s.max);
+    for (const s of this.sparks) {
+      const k = 1 - s.age / s.max;
+      const sx = dotX - 6 * dpr - (s.vx + speed / dpr) * s.age * dpr, sy = s.y0 + s.vy * s.age * dpr;
+      ctx.beginPath(); ctx.arc(sx, sy, (0.8 + 1.4 * k) * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(s.gold ? pal.gold : pal.orange, 0.85 * k); ctx.fill();
+    }
+    // speed streaks just behind the dot: more and longer when fast
+    const streaks = 3 + Math.round(4 * h);
+    for (let i = 0; i < streaks; i++) {
+      const ph = (this.clock * (2.2 + 2 * h) + i / streaks) % 1;
+      ctx.strokeStyle = rgba(hot, (0.35 + 0.3 * h) * (1 - ph)); ctx.lineWidth = (1.2 + 0.6 * h) * dpr;
+      const len = (9 + 18 * h) * dpr;
+      const sx = dotX - 8 * dpr - ph * (26 + 30 * h) * dpr, sy = y + (i - (streaks - 1) / 2) * 3.2 * dpr;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - len, sy); ctx.stroke();
+    }
+    // plasma cap from 200 Mbit/s: a bright bow wrapping the front of the dot,
+    // like a meteor entering the air: white-gold inside, orange at the edge, flickering
+    if (h > 0.45) {
+      const p = Math.min(1, (h - 0.45) / 0.55);
+      const flick = 0.82 + 0.18 * Math.sin(this.clock * 37) * Math.sin(this.clock * 23 + 1);
+      const r = (6 + 8 * p) * dpr, cx = dotX + r * 0.3;
+      ctx.save();
+      const glow = ctx.createRadialGradient(cx, y, 0, cx, y, r * 1.7);
+      glow.addColorStop(0, rgba("#ffffff", 0.5 * p * flick));
+      glow.addColorStop(0.35, rgba(pal.gold, 0.42 * p * flick));
+      glow.addColorStop(1, rgba(pal.orange, 0));
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(cx, y, r * 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowColor = pal.gold; ctx.shadowBlur = (8 + 12 * p) * dpr; ctx.lineCap = "round";
+      const bows = [[r, (2 + 2.2 * p) * dpr, pal.orange, 0.75], [r * 0.8, (1.3 + 1.3 * p) * dpr, pal.gold, 0.9], [r * 0.62, 1.1 * dpr, "#ffffff", 0.95]];
+      for (const [rr, w, c, a] of bows) {
+        ctx.strokeStyle = rgba(c, a * flick); ctx.lineWidth = w;
+        ctx.beginPath(); ctx.arc(dotX - r * 0.15, y, rr, -Math.PI * 0.42, Math.PI * 0.42); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // pulsing halo and the dot: green when calm, amber when fast, gold when blazing
+    const dot = h > 0.9 ? mix(hot, pal.gold, (h - 0.9) * 10) : hot;
+    const pulse = (this.clock * (1.1 + h)) % 1;
+    ctx.beginPath(); ctx.arc(dotX, y, (4 + pulse * (9 + 6 * h)) * dpr, 0, Math.PI * 2); ctx.fillStyle = rgba(dot, (0.28 + 0.15 * h) * (1 - pulse)); ctx.fill();
+    ctx.save(); ctx.shadowColor = dot; ctx.shadowBlur = (12 + 16 * h) * dpr;
+    ctx.beginPath(); ctx.arc(dotX, y, 3.6 * (1 + 0.35 * h) * dpr, 0, Math.PI * 2); ctx.fillStyle = dot; ctx.fill(); ctx.restore();
+    ctx.beginPath(); ctx.arc(dotX, y, 1.4 * (1 + 0.6 * h) * dpr, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
   }
 }
 // Still trace of a finished phase, same style, dot at the end.
@@ -306,23 +405,25 @@ function gridLines(ctx, W, H, pad, dpr, green) {
 function drawStill(cv, series, finished) {
   if (!cv.isConnected) return;
   const dpr = fitCanvas(cv); const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
-  const green = cssVar("--ok", "#2fbf71"); const pad = 5 * dpr;
+  const pal = heatPalette(), green = pal.green; const pad = 5 * dpr;
   const max = scaleFor(Math.max(...series, 1));
   const pts = series.map((v, i) => [pad + (i / Math.max(1, series.length - 1)) * (W - pad * 3), H - pad - (v / max) * (H - pad * 2)]);
+  const end = heatColor(pal, heatOf(series[series.length - 1]));
   ctx.clearRect(0, 0, W, H);
   gridLines(ctx, W, H, pad, dpr, green);
-  const fill = ctx.createLinearGradient(0, 0, 0, H); fill.addColorStop(0, rgba(green, 0.22)); fill.addColorStop(1, rgba(green, 0));
+  const hMax = heatOf(Math.max(...series));
+  const fill = ctx.createLinearGradient(0, 0, 0, H); fill.addColorStop(0, rgba(mix(green, pal.amber, hMax * 0.7), 0.22)); fill.addColorStop(1, rgba(green, 0));
   ctx.beginPath(); ctx.moveTo(pts[0][0], H); pts.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(pts[pts.length - 1][0], H); ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
-  const fade = ctx.createLinearGradient(0, 0, W, 0); fade.addColorStop(0, rgba(green, 0.35)); fade.addColorStop(1, rgba(green, 0.95));
-  ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.strokeStyle = fade; ctx.lineWidth = 1.8 * dpr; ctx.lineJoin = "round"; ctx.stroke();
+  // the still trace keeps the heat colours: fast parts of the test stay amber or orange
+  strokeHeat(ctx, pts, series, pal, (x) => 0.35 + 0.6 * (x / W), 1.8 * dpr);
   const [ex, ey] = pts[pts.length - 1];
   if (finished) {
     // finish line and a ringed dot: the phase ended normally
-    ctx.save(); ctx.strokeStyle = rgba(green, 0.55); ctx.lineWidth = 1 * dpr; ctx.setLineDash([2 * dpr, 2 * dpr]);
+    ctx.save(); ctx.strokeStyle = rgba(end, 0.55); ctx.lineWidth = 1 * dpr; ctx.setLineDash([2 * dpr, 2 * dpr]);
     ctx.beginPath(); ctx.moveTo(ex, pad); ctx.lineTo(ex, H - pad); ctx.stroke(); ctx.restore();
-    ctx.beginPath(); ctx.arc(ex, ey, 5.5 * dpr, 0, Math.PI * 2); ctx.strokeStyle = green; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+    ctx.beginPath(); ctx.arc(ex, ey, 5.5 * dpr, 0, Math.PI * 2); ctx.strokeStyle = end; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
   }
-  ctx.save(); ctx.shadowColor = green; ctx.shadowBlur = 8 * dpr; ctx.beginPath(); ctx.arc(ex, ey, 3 * dpr, 0, Math.PI * 2); ctx.fillStyle = green; ctx.fill(); ctx.restore();
+  ctx.save(); ctx.shadowColor = end; ctx.shadowBlur = 8 * dpr; ctx.beginPath(); ctx.arc(ex, ey, 3 * dpr, 0, Math.PI * 2); ctx.fillStyle = end; ctx.fill(); ctx.restore();
 }
 function addSpark(tile, series, running, liveValue, finished) {
   const pts = series || [];
