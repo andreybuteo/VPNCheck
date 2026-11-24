@@ -4,7 +4,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -77,8 +75,8 @@ func run(port int, noBrowser bool, dataDirOverride string, demoMode bool) error 
 	if info, ok := readInstance(instPath); ok && instanceAlive(info) {
 		logger.Printf("уже запущен экземпляр на порту %d, открываю его", info.Port)
 		launchURL := fmt.Sprintf("http://127.0.0.1:%d/session?t=%s", info.Port, info.Token)
-		if !noBrowser {
-			return openBrowser(launchURL)
+		if !noBrowser && openBrowser(launchURL) == nil {
+			return nil
 		}
 		fmt.Println(i18n.T("Откройте в браузере:"), launchURL)
 		return nil
@@ -254,14 +252,4 @@ func instanceAlive(info instanceInfo) bool {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	return resp.StatusCode == http.StatusOK && resp.Header.Get("X-VPNCheck-Instance") == app.Name
-}
-
-// openBrowser hands the URL to the default browser without a shell.
-func openBrowser(url string) error {
-	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	if err := cmd.Start(); err != nil {
-		return errors.New("rundll32: " + err.Error())
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
 }

@@ -24,7 +24,7 @@ export function renderHeader() {
   let warn = false, title = t("Открыть настройки маршрута");
   if (route.mode === "system" && sp && sp.found && (sp.enabled || Object.keys(sp.env || {}).length)) {
     warn = true;
-    title = t("Обнаружен системный прокси (%s). Браузер может ходить через него, а программа в этом режиме идёт напрямую по маршрутизации Windows: пути могут различаться.", sp.sources.join(", "));
+    title = t("Обнаружен системный прокси (%s). Браузер может ходить через него, а программа в этом режиме идёт напрямую по маршрутизации системы: пути могут различаться.", sp.sources.join(", "));
     text = t("%s · системный прокси обнаружен", text);
   }
   badge.className = "route-badge" + (warn ? " warn" : "");
@@ -213,8 +213,8 @@ export function renderEnv() {
   rows.push([t("Локальные прокси"), env.localProxyListeners.length
     ? env.localProxyListeners.map(l => `${l.addr}:${l.port} ${l.guess || ""} (${l.process || "pid " + l.pid})`).join("; ") : none]);
   const px = env.proxies;
-  rows.push([t("Прокси Windows / переменные"), px.found
-    ? ((px.server ? (px.enabled ? "WinINET " + px.server : t("WinINET %s (выкл.)", px.server)) + "; " : "")
+  rows.push([t("Системный прокси / переменные"), px.found
+    ? ((px.server ? (px.enabled ? (px.system || "WinINET") + " " + px.server : t("%s %s (выкл.)", px.system || "WinINET", px.server)) + "; " : "")
       + Object.entries(px.env || {}).map(([k, v2]) => `${k}=${v2}`).join("; ") + (px.pac ? "; PAC " + px.pac : ""))
     : t("не заданы")]);
   const ups = env.adapters.filter(a => a.up);

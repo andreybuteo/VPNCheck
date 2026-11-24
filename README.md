@@ -1,11 +1,11 @@
 # VPN Check
 
-**Is it the VPN, the route, or the service?** VPN Check is a small local Windows tool that checks
+**Is it the VPN, the route, or the service?** VPN Check is a small local tool for Windows and Linux that checks
 which services are reachable through your current VPN (or an explicit proxy), measures the speed of
 the route, and explains *why* something does not open: a geo-block by the service, DPI resetting the
 TLS handshake, TLS interception, traffic bypassing the VPN, DNS spoofing, rate limits.
 
-One `VPNCheck.exe`, no installation, no admin rights, no cloud, no account. The interface opens in
+One file (`VPNCheck.exe` or `vpncheck`), no installation, no admin or root rights, no cloud, no account. The interface opens in
 your browser and talks only to `127.0.0.1`.
 
 [Русская версия](README.ru.md) · Interface languages: English, Русский, Deutsch, 中文, فارسی, العربية
@@ -65,6 +65,25 @@ VPN Check is meant to be pressed by a person now and then, never to load anybody
 3. Check the route shown in the header (system route / TUN, or the local proxy of your VPN client),
    press **Start check**, then **Speed** if you want a speed test.
 
+### Linux
+
+1. Download `VPNCheck-<version>-linux-amd64.tar.gz` (or `-linux-arm64` for ARM) from
+   [Releases](https://github.com/andreybuteo/VPNCheck/releases), unpack and check it:
+   ```sh
+   tar xzf VPNCheck-<version>-linux-amd64.tar.gz && cd VPNCheck-<version>
+   sha256sum -c vpncheck.sha256
+   ./vpncheck
+   ```
+2. The interface opens in the default browser (`xdg-open`). Without a desktop (a server over SSH)
+   run `./vpncheck --no-browser --port 18800`, forward the port (`ssh -L 18800:127.0.0.1:18800 host`)
+   and open the printed link locally.
+
+The Linux passport reads `/proc` and `/sys` without root: interfaces and tunnels (tun, WireGuard,
+AmneziaWG, PPP), the route the kernel really uses (also with policy routing of wg-quick, sing-box
+or Clash TUN), local proxy ports and VPN client processes (processes of other users show no name
+without root), the GNOME or KDE proxy settings and `HTTP(S)_PROXY`. Data lives in
+`~/.local/share/VPNCheck`. A static binary, no dependencies; tested on Ubuntu 26.04.
+
 Closing the browser tab does not stop the program; use the power button in the header. Command line:
 `--no-browser`, `--port N`, `--data-dir PATH`, `--version`, `--demo` (fabricated results and no
 network at all, for trying the interface).
@@ -92,14 +111,15 @@ Requires Go 1.27 on Windows (`winget install GoLang.Go`):
 ```
 
 The script runs `go vet` and `go test`, builds `dist\VPNCheck.exe` (no CGO, standard library only,
-`-trimpath -ldflags "-s -w -H windowsgui"`), prints size and SHA-256 and creates the release ZIP.
+`-trimpath -ldflags "-s -w -H windowsgui"`), prints size and SHA-256 and creates the release ZIP, then builds `vpncheck` for Linux amd64 and arm64
+and packs each into a `tar.gz` with the executable bit set (`tools/tarball`).
 
 ```
-cmd/vpncheck/   entry point, Windows resources
+cmd/vpncheck/   entry point, Windows resources, browser opener per OS
 internal/       probes, address guard, limiter, classification, diagnosis, speed test,
                 registry, storage, reports, API, HTTP server, i18n
 web/            interface (HTML/CSS/JS), embedded into the exe
-tools/          icon generator, translation key extractor
+tools/          icon generator, translation key extractor, tar.gz packer
 docs/           specification, registry of reference endpoints, test report (Russian)
 ```
 
@@ -109,8 +129,8 @@ docs/           specification, registry of reference endpoints, test report (Rus
   not prove that video plays, TLS to an API does not prove that a model call succeeds.
 - Verdicts are heuristics without packet capture or admin rights; each shows its confidence.
 - Speed figures are close to, but not the same as, speedtest.net: the server is different.
-- Windows 11 x64 is the target; the code builds on other systems, but the environment passport and
-  proxy detection are Windows-only.
+- Windows 11 x64 and Linux (amd64, arm64) are supported; macOS builds, but the environment passport
+  and proxy detection there are not written yet.
 
 ## For AI assistants
 

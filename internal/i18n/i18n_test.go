@@ -94,3 +94,11 @@ func TestLookupFallbackAndPlural(t *testing.T) {
 	}
 	Set("ru")
 }
+
+func TestPosixToBCP47(t *testing.T) {
+	for in, want := range map[string]string{"ru_RU.UTF-8": "ru-RU", "zh_CN.utf8": "zh-CN", "fa_IR": "fa-IR", "de_DE@euro": "de-DE", "C.UTF-8": "", "POSIX": "", "": "", "en": "en"} {
+		if got := posixToBCP47(in); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}

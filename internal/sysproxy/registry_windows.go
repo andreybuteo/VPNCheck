@@ -5,7 +5,14 @@ package sysproxy
 import (
 	"syscall"
 	"unsafe"
+
+	"vpncheck/internal/i18n"
 )
+
+func readSystemProxy() (systemProxy, error) {
+	enabled, server, pac, err := readWinINET()
+	return systemProxy{System: "WinINET", Source: i18n.T("Настройки прокси Windows (WinINET, HKCU)"), Enabled: enabled, Server: server, PAC: pac}, err
+}
 
 // readWinINET reads HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings.
 func readWinINET() (enabled bool, server, pac string, err error) {

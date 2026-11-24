@@ -34,9 +34,9 @@ export function renderDrawer() {
 function renderSysProxy() {
   const box = $("sysproxyBox");
   const sp = S.state.sysproxy;
-  if (!sp || !sp.found) { box.replaceChildren(el("span", { text: t("Системный прокси Windows и переменные окружения не обнаружены.") })); return; }
+  if (!sp || !sp.found) { box.replaceChildren(el("span", { text: t("Системный прокси и переменные окружения не обнаружены.") })); return; }
   const parts = [el("div", {}, el("b", { text: t("Обнаружено в системе (только подсказка):") + " " }), sp.sources.join("; "))];
-  if (sp.server) parts.push(el("div", { text: sp.enabled ? t("WinINET: %s (включён)", sp.server) : t("WinINET: %s (выключен)", sp.server) }));
+  if (sp.server) parts.push(el("div", { text: sp.enabled ? t("%s: %s (включён)", sp.system || "WinINET", sp.server) : t("%s: %s (выключен)", sp.system || "WinINET", sp.server) }));
   if (sp.pac) parts.push(el("div", { text: "PAC: " + sp.pac }));
   for (const [k, v] of Object.entries(sp.env || {})) parts.push(el("div", { class: "mono", text: `${k}=${v}` }));
   for (const n of sp.notes || []) parts.push(el("div", { text: n }));

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"vpncheck/internal/i18n"
@@ -20,7 +21,7 @@ const DirName = "VPNCheck"
 // Version is overridden at build time via -ldflags "-X vpncheck/internal/app.Version=...".
 // Versioning rule: a major change adds 1.0, any other change adds 0.1
 // (see README, «Версионирование»). Keep winres/winres.json in sync.
-var Version = "4.5"
+var Version = "5.0"
 
 // Limits that the backend enforces regardless of UI state (spec §7).
 const (
@@ -90,6 +91,13 @@ func DataDir(override string) (string, error) {
 	dir := override
 	if dir == "" {
 		base := os.Getenv("LOCALAPPDATA")
+		if base == "" && runtime.GOOS == "linux" {
+			// XDG: $XDG_DATA_HOME or ~/.local/share (history should survive cache cleaning).
+			base = os.Getenv("XDG_DATA_HOME")
+			if home, err := os.UserHomeDir(); base == "" && err == nil {
+				base = filepath.Join(home, ".local", "share")
+			}
+		}
 		if base == "" {
 			var err error
 			base, err = os.UserCacheDir()

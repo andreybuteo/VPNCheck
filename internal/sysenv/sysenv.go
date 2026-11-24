@@ -152,6 +152,50 @@ var knownClients = map[string]knownClient{
 	"byedpi.exe":              {"ByeDPI", "dpi-bypass"},
 	"spoofdpi.exe":            {"SpoofDPI", "dpi-bypass"},
 	"zapret.exe":              {"zapret", "dpi-bypass"},
+
+	// Linux process names (/proc/<pid>/comm or the executable name).
+	"v2ray":               {"v2ray-core", "proxy-client"},
+	"xray":                {"Xray-core", "proxy-client"},
+	"v2raya":              {"v2rayA", "proxy-client"},
+	"v2rayn":              {"v2rayN", "proxy-client"},
+	"sing-box":            {"sing-box", "proxy-client"},
+	"clash":               {"Clash", "proxy-client"},
+	"clash-meta":          {"Clash Meta", "proxy-client"},
+	"clash-verge":         {"Clash Verge", "proxy-client"},
+	"verge-mihomo":        {"Clash Verge (mihomo)", "proxy-client"},
+	"mihomo":              {"mihomo (Clash Meta)", "proxy-client"},
+	"flclash":             {"FlClash", "proxy-client"},
+	"nekoray":             {"NekoRay", "proxy-client"},
+	"nekobox":             {"NekoBox", "proxy-client"},
+	"nekobox_core":        {"NekoBox core", "proxy-client"},
+	"throne":              {"Throne", "proxy-client"},
+	"hiddify":             {"Hiddify", "proxy-client"},
+	"hiddifycli":          {"Hiddify CLI", "proxy-client"},
+	"karing":              {"Karing", "proxy-client"},
+	"ss-local":            {"shadowsocks-libev", "proxy-client"},
+	"sslocal":             {"shadowsocks-rust", "proxy-client"},
+	"tor":                 {"Tor", "proxy-client"},
+	"outline-client":      {"Outline", "vpn-client"},
+	"amneziavpn":          {"AmneziaVPN", "vpn-client"},
+	"amneziavpn-service":  {"AmneziaVPN service", "vpn-client"},
+	"amneziawg-go":        {"AmneziaWG", "vpn-client"},
+	"wireguard-go":        {"WireGuard (userspace)", "vpn-client"},
+	"openvpn":             {"OpenVPN", "vpn-client"},
+	"openconnect":         {"OpenConnect", "vpn-client"},
+	"psiphon-tunnel-core": {"Psiphon core", "vpn-client"},
+	"nordvpnd":            {"NordVPN daemon", "vpn-client"},
+	"expressvpnd":         {"ExpressVPN daemon", "vpn-client"},
+	"mullvad-daemon":      {"Mullvad daemon", "vpn-client"},
+	"protonvpn-app":       {"Proton VPN", "vpn-client"},
+	"windscribe":          {"Windscribe", "vpn-client"},
+	"piactl":              {"Private Internet Access", "vpn-client"},
+	"pia-daemon":          {"Private Internet Access", "vpn-client"},
+	"proxychains4":        {"proxychains", "proxifier"},
+	"ciadpi":              {"ByeDPI", "dpi-bypass"},
+	"byedpi":              {"ByeDPI", "dpi-bypass"},
+	"spoofdpi":            {"SpoofDPI", "dpi-bypass"},
+	"nfqws":               {"zapret (nfqws)", "dpi-bypass"},
+	"tpws":                {"zapret (tpws)", "dpi-bypass"},
 }
 
 // tunMarkers are substrings of adapter descriptions that indicate a tunnel.
@@ -303,9 +347,9 @@ func verdict(p *Passport) Verdict {
 		if best.Guess == "socks5" {
 			kind = model.ProxySOCKS5
 		}
-		sysNote := i18n.T("Системный прокси Windows не указывает на него, поэтому браузер может идти иначе.")
+		sysNote := i18n.T("Системный прокси не указывает на него, поэтому браузер может идти иначе.")
 		if p.Proxies.Suggested != nil && strings.HasSuffix(p.Proxies.Suggested.ProxyAddr, fmt.Sprintf(":%d", best.Port)) {
-			sysNote = i18n.T("Системный прокси Windows указывает на этот порт: браузер идёт через него.")
+			sysNote = i18n.T("Системный прокси указывает на этот порт: браузер идёт через него.")
 		}
 		clientName := best.Process
 		if kc, ok := knownClients[strings.ToLower(best.Process)]; ok && kc.name != "" {
@@ -317,7 +361,7 @@ func verdict(p *Passport) Verdict {
 			SuggestedRoute: &model.RouteConfig{Mode: model.RouteProxy, ProxyKind: kind, ProxyAddr: fmt.Sprintf("127.0.0.1:%d", best.Port)}}
 	}
 	if p.Proxies.Suggested != nil {
-		return Verdict{Mode: "proxy", Confidence: "medium", Title: i18n.T("В Windows задан прокси, но слушающий процесс на нём не найден"),
+		return Verdict{Mode: "proxy", Confidence: "medium", Title: i18n.T("Системный прокси задан, но слушающий процесс на нём не найден"),
 			Text:           i18n.T("Системный прокси ") + p.Proxies.Suggested.ProxyAddr + i18n.T(" задан; проверьте, запущен ли VPN-клиент. Режим «Прокси» будет работать только если порт отвечает."),
 			SuggestedRoute: p.Proxies.Suggested}
 	}

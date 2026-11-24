@@ -28,7 +28,7 @@ product:
     - packet capture or anything that needs admin rights
 
 how_it_runs:
-  binary: VPNCheck.exe   # single file, no install, no admin rights, standard library Go
+  binary: "VPNCheck.exe (Windows) or vpncheck (Linux amd64/arm64, tar.gz)"   # single file, no install, no admin/root rights, standard library Go
   ui: browser page served by the exe on 127.0.0.1 (random free port), opened automatically
   single_instance: a second start opens a tab to the running instance (instance.json)
   quit: power button in the header ("Завершить приложение"); closing the tab does NOT stop it
@@ -56,7 +56,7 @@ how_it_runs:
 
 concepts:
   route:
-    system: "Системный маршрут / TUN: as Windows routes it (full-tunnel VPN, TUN mode, or no VPN)"
+    system: "Системный маршрут / TUN: as the OS routes it (full-tunnel VPN, TUN mode, or no VPN)"
     proxy: "Прокси: explicit local proxy of the VPN client, HTTP CONNECT or SOCKS5 without auth, e.g. 127.0.0.1:10808"
     rule_of_thumb: >
       If the VPN client works only as a local proxy (no TUN adapter with the default route),
@@ -64,7 +64,7 @@ concepts:
       passport detects this and offers "Применить маршрут" (apply route).
   environment_passport: >
     Collected offline: VPN client processes and their listening ports, TUN adapters, the
-    default route, split tunnelling, local proxies, Windows proxy (WinINET), environment variables.
+    default route, split tunnelling, local proxies, system proxy (Windows WinINET; Linux GNOME/KDE), environment variables.
     Verdict modes: tun | proxy | none | client-no-proxy | unknown.
   endpoint: "контрольная точка: one public HTTPS host on port 443, probed as tls or https"
   group: "группа: a service (OpenAI, Anthropic, Google, ...) made of several endpoints"
@@ -100,9 +100,9 @@ settings:   # settings.json; changed in the UI (gear icon "Настройки"),
   ipLogOff: { type: bool, default: false, meaning: "true = no exit-IP requests (disables the IP log)" }
   speedServer: { type: enum, values: [cloudflare, hetzner-fsn1, hetzner-hel1], default: cloudflare }
   speedAcknowledged: { type: bool, meaning: "user ticked 'don't ask again' in the speed confirmation" }
-  language: { type: enum, values: ["", ru, en, de, zh, fa, ar], default: "", meaning: "'' = Auto: Windows regional format, then browser, then ru" }
+  language: { type: enum, values: ["", ru, en, de, zh, fa, ar], default: "", meaning: "'' = Auto: system regional format (Windows) or LANG (Linux), then browser, then ru" }
   theme: { type: enum, values: [dark, light] }
-  selectedEndpoints: { type: "[]string", meaning: "endpoint ids for the next fast run; empty = defaults: all groups plus the "direct" group of the user's own country" }
+  selectedEndpoints: { type: "[]string", meaning: "endpoint ids for the next fast run; empty = defaults: all groups plus the direct group of the user's own country" }
   stabilityEndpoints: { type: "[]string", max: 5 }
 
 custom_endpoints:   # how to adapt the check list to a user's own services
@@ -181,9 +181,9 @@ adaptation_recipes:   # how to tailor VPN Check to one user, step by step
   user_needs_specific_services: "Add them as custom endpoints (recipe above); disable irrelevant built-in groups in the registry or in 'Что проверять'."
   apps_bypass_vpn: "Diagnosis by two routes on a problem group; verdict direct_blocked_proxy_ok means enable TUN mode in the VPN client or configure the app's proxy."
   slow_or_metered_link: "Use speed server hetzner-* (download only) or avoid speed tests; raise the pause between runs; IP log costs ~2 tiny requests per run."
-  user_with_split_rules: "Select the group of the user's country: 'Россия / Китай / Иран напрямую' (selected by default by Windows region or language) and run a check on the route the apps use. The tool only observes; it never edits the VPN client's rules, so it cannot break the VPN."
+  user_with_split_rules: "Select the group of the user's country: 'Россия / Китай / Иран напрямую' (selected by default by system region or language) and run a check on the route the apps use. The tool only observes; it never edits the VPN client's rules, so it cannot break the VPN."
   privacy_sensitive_user: "Settings: turn off 'Журнал IP выхода' (ipLogOff=true); exports hide IPs by default."
-  language: "Header language switcher; Auto follows Windows regional format."
+  language: "Header language switcher; Auto follows the system regional format."
   sharing_results_with_an_assistant: "Save the JSON report (without detailed data) and give it together with this guide."
 
 for_developers:
@@ -201,7 +201,7 @@ for_developers:
     internal/runner: check runs, exit IP, split-routing check (split.go)
     internal/speed: speed test
     internal/classify, internal/diag: outcome labels and verdicts
-    internal/sysenv: environment passport (Windows)
+    internal/sysenv: "environment passport (Windows - iphlpapi, Linux - /proc and /sys)"
     internal/sysproxy: WinINET + env proxies
     internal/registry: endpoints, validation
     internal/report: JSON/CSV export and diagnostic report

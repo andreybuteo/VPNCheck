@@ -1,5 +1,5 @@
-// Package sysproxy reads the Windows user proxy settings (WinINET, the ones
-// browsers use) and the proxy environment variables. The result is a hint for
+// Package sysproxy reads the user's system proxy settings (Windows WinINET,
+// GNOME or KDE on Linux: the ones browsers use) and the proxy environment variables. The result is a hint for
 // the user only: the application never applies it automatically, and
 // net/http's ProxyFromEnvironment is never used for probes.
 package sysproxy
@@ -17,6 +17,7 @@ import (
 // Hint is what was detected.
 type Hint struct {
 	Found     bool               `json:"found"`
+	System    string             `json:"system,omitempty"` // "WinINET", "GNOME", "KDE"
 	Sources   []string           `json:"sources"`
 	Enabled   bool               `json:"enabled"`
 	Server    string             `json:"server,omitempty"`
@@ -33,7 +34,7 @@ func (h Hint) Short() string {
 	}
 	parts := []string{}
 	if h.Enabled && h.Server != "" {
-		parts = append(parts, "WinINET: "+h.Server)
+		parts = append(parts, h.System+": "+h.Server)
 	}
 	if h.PAC != "" {
 		parts = append(parts, "PAC")
@@ -47,13 +48,23 @@ func (h Hint) Short() string {
 	return strings.Join(parts, "; ")
 }
 
-// Detect reads WinINET (registry) and environment variables.
+// systemProxy is what the OS-specific reader found. Server uses the WinINET
+// form: "host:port" or "http=host:port;https=host:port;socks=host:port".
+type systemProxy struct {
+	System, Source string
+	Enabled        bool
+	Server, PAC    string
+}
+
+// Detect reads the system proxy settings and environment variables.
 func Detect() Hint {
 	h := Hint{Env: map[string]string{}, Notes: []string{}}
-	enabled, server, pac, err := readWinINET()
+	sp, err := readSystemProxy()
+	enabled, server, pac := sp.Enabled, sp.Server, sp.PAC
 	if err == nil && (server != "" || pac != "") {
 		h.Found = true
-		h.Sources = append(h.Sources, i18n.T("Настройки прокси Windows (WinINET, HKCU)"))
+		h.System = sp.System
+		h.Sources = append(h.Sources, sp.Source)
 		h.Enabled = enabled
 		h.Server = safeSetting(server)
 		h.PAC = safeSetting(pac)

@@ -208,7 +208,7 @@ func analyzeGroup(gid, name string, eps []model.Endpoint, lat map[string]map[str
 		if o.pri != nil && o.pri.Transport.ErrorKind == model.ErrTLSCert {
 			v.Code, v.Level, v.Confidence = "tls_intercept", model.LevelError, "medium"
 			v.Title = i18n.T("Сертификат не прошёл проверку: возможен перехват TLS")
-			v.Explanation = i18n.T("TCP-соединение с %s установлено, но сервер предъявил сертификат, которому Windows не доверяет: %s. Так бывает при корпоративном прокси, «заглушке» провайдера или неверных системных часах.", o.pri.Host, o.pri.Transport.ErrorText)
+			v.Explanation = i18n.T("TCP-соединение с %s установлено, но сервер предъявил сертификат, которому система не доверяет: %s. Так бывает при корпоративном прокси, «заглушке» провайдера или неверных системных часах.", o.pri.Host, o.pri.Transport.ErrorText)
 			v.Evidence = append(v.Evidence, fmt.Sprintf("%s: %s", o.pri.Host, o.pri.Transport.ErrorText))
 			v.Advice = i18n.T("Проверьте дату и время системы. Не добавляйте чужие корневые сертификаты; если это корпоративная сеть, обратитесь к администратору.")
 			return v
